@@ -10,6 +10,9 @@ on:
 env:
   GODOT_VERSION: "4.3"
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
