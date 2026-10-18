@@ -1,0 +1,11 @@
+{
+  "testimonya":     {"name": "Salaysay ni Bantay Lito", "desc": "Tatlo lang ang pumasok sa tolda noong gabing iyon: si Sir Gaspar, si Dayang Hiraya, at si Apo Banal, na nagbasbas ng alak."},
+  "tasa":           {"name": "Tasang May Lason", "desc": "May itim at matamis na latak ng ugat ng hatinggabi ang tasa ng Datu. Tumutubo lang ito sa paanan ng balete sa malalim na gubat."},
+  "walang_sugat":   {"name": "Malinis na Espada", "desc": "Walang dugo ang espada ni Sir Gaspar, at walang sugat ang Datu. Lason ang pumatay, hindi talim."},
+  "alibi_hiraya":   {"name": "Lihim ni Hiraya", "desc": "Ayon sa Tikbalang, nasa gubat si Dayang Hiraya buong gabi kasama ang isang eskudero ng Liwayway."},
+  "puting_balabal": {"name": "Saksi ng Tikbalang", "desc": "Isang lalaking nakaputing balabal, may palawit na hugis-buwan, ang humukay ng ugat ng hatinggabi sa ilalim ng balete."},
+  "ugat":           {"name": "Hukay sa Balete", "desc": "Bagong hukay ng ugat ng hatinggabi, at pilas ng puting telang may burdang pilak: tela ng mga pari ng Dambana."},
+  "putik":          {"name": "Salaysay ni Aling Pacing", "desc": "Nakita si Apo Banal na pauwi galing sa gubat noong hatinggabi, putikan ang balabal at may hawak na maiitim na ugat."},
+  "tala_tip":       {"name": "Tip ni Tala", "desc": "May dinalang supot ng mga balumbon si Apo Banal sa Guho ng Unang Buwan, bago mag-umaga."},
+  "sulat":          {"name": "Sulat ng Kapatiran", "desc": "Sulat na may selyo ng Bakunawa: 'Nailagay ko na ang ugat sa alak ng kapayapaan... -B.'"}
+}

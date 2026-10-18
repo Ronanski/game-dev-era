@@ -1,0 +1,19 @@
+# Godot 4
+.godot/
+/android/
+*.translation
+
+# Builds
+build/
+*.apk
+*.aab
+*.exe
+*.pck
+
+# Keystores (never commit signing keys)
+*.keystore
+*.jks
+
+# OS
+.DS_Store
+Thumbs.db

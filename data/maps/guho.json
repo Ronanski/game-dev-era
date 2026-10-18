@@ -1,0 +1,55 @@
+{
+  "name": "Guho ng Unang Buwan",
+  "size": [44, 34],
+  "ground": "#5e564c",
+  "sky": "#2f2522",
+  "ambient": "#a08a7a",
+  "ambient_energy": 0.5,
+  "sun": "#ffb27a",
+  "sun_energy": 0.65,
+  "fog": "#7a6350",
+  "fog_density": 0.022,
+  "spawns": {"from_halina": [-18.8, 0]},
+  "events": [
+    {"if": {"not_flag": "guho_visited"}, "file": "guho", "start": "enter"}
+  ],
+  "encounters": {"groups": ["guho_1", "guho_2", "guho_3"], "min": 16, "max": 28},
+  "exits": [
+    {"pos": [-21.3, 0], "size": [1.4, 4], "to": "halina", "spawn": "from_guho", "label": "Bayan ng Halina"}
+  ],
+  "props": [
+    {"type": "path", "pos": [-8, 0], "size": [28, 3.2], "color": "#6f665a"},
+    {"type": "path", "pos": [0, -6], "size": [3.2, 12], "color": "#6f665a"},
+    {"type": "path", "pos": [0, -10], "size": [10, 6], "color": "#787064"},
+
+    {"type": "moon", "pos": [8, 14, -30], "radius": 6, "color": "#f2e6b8"},
+    {"type": "moon", "pos": [-2, 9, -26], "radius": 1.2, "color": "#e8dcb0"},
+    {"type": "moon", "pos": [16, 11, -27], "radius": 0.8, "color": "#e8dcb0"},
+
+    {"type": "chest", "pos": [0, -12.2]},
+    {"type": "statue", "pos": [-4, -12], "color": "#8a8278", "orb": false},
+    {"type": "statue", "pos": [4, -12], "color": "#8a8278", "orb": false},
+    {"type": "box", "pos": [8, 7], "size": [4, 3, 3.5], "color": "#9a948a"},
+    {"type": "box", "pos": [9.8, 8.2], "size": [1.4, 1.6, 1.4], "color": "#8a8478"},
+    {"type": "sign", "pos": [8, 7], "text": "Ulo ng Lumang Rebulto", "height": 3.8},
+    {"type": "box", "pos": [-8, 5.5], "size": [6, 2.6, 0.8], "color": "#8a8072"},
+    {"type": "box", "pos": [-12, -6], "size": [0.8, 2.0, 5], "color": "#8a8072"},
+    {"type": "box", "pos": [12, -5], "size": [5, 1.4, 0.8], "color": "#8a8072"},
+    {"type": "box", "pos": [16, 3], "size": [0.8, 2.4, 6], "color": "#8a8072"},
+    {"type": "lamp", "pos": [-2.4, -8.5], "color": "#ff9a5a"},
+    {"type": "lamp", "pos": [2.4, -8.5], "color": "#ff9a5a"},
+    {"type": "lamp", "pos": [-14, 2.2], "color": "#ff9a5a"},
+
+    {"type": "scatter", "kind": "pillar", "area": [-20, -16, 20, 16], "count": 26,
+     "avoid": [[-22, -2.2, 22, 2.2], [-2.2, -16, 2.2, 2], [-6, -15, 6, -7], [5, 4, 12, 10], [-11, 4, -5, 7]]},
+    {"type": "scatter", "kind": "rock", "area": [-20, -16, 20, 16], "count": 30,
+     "avoid": [[-22, -2.2, 22, 2.2], [-2.2, -16, 2.2, 2], [-6, -15, 6, -7], [-16, -8, -12, -4]]},
+    {"type": "scatter", "area": [-20, 12, 20, 16.5], "count": 8, "trees": ["round"]}
+  ],
+  "actors": [
+    {"id": "sigbin", "pos": [0, -8.6], "scale": 1.5, "if": {"not_flag": "sigbin_defeated"}, "talk": [{"file": "guho", "start": "sigbin"}]},
+    {"id": "dibdib", "look": "sparkle", "name": "Lumang Dibdib", "pos": [0, -11.2], "talk": [{"file": "guho", "start": "dibdib"}]},
+    {"id": "ukit", "look": "sparkle", "name": "Pader na may Ukit", "pos": [-8, 4.4], "talk": [{"file": "guho", "start": "ukit"}]},
+    {"id": "manlalakbay", "pos": [-14, -5.5], "talk": [{"file": "guho", "start": "manlalakbay"}]}
+  ]
+}

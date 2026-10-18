@@ -1,0 +1,72 @@
+{
+  "enter": {
+    "do": {"set": {"guho_visited": true}},
+    "lines": [
+      ["", "Ang Guho ng Unang Buwan. Dito bumagsak ang unang buwang nilamon ng Bakunawa, at dito gumuho ang kabisera ng Ma-i."],
+      ["bagwis", "Tingnan mo ang langit, Amihan. Ang pirasong iyon ng buwan... nakalutang pa rin pagkatapos ng tatlong daang taon."],
+      ["amihan", "Sabi sa templo, umiiyak daw ito tuwing kabilugan."]
+    ],
+    "next": "enter_tala"
+  },
+  "enter_tala": {
+    "if": {"member": "tala"},
+    "lines": [["tala", "Mag-ingat kayo sa mga bandido. Dati akong... ah, kakilala ng ilan sa kanila. Hindi sila mababait."]]
+  },
+
+  "ukit": {
+    "do": {"set": {"lore_prophecy": true}},
+    "lines": [
+      ["", "Nakaukit sa sirang pader, sa lumang sulat ng Ma-i:"],
+      ["", "'SA ARAW NA ANG DUGO NG DALAWANG BAYAN AY DUMALOY SA HARAP NG MGA MUTYA, MAGBUBUKAS ANG BIBIG NG AHAS, AT ANG HULING LIWANAG AY BABALIK SA KANYANG PINAGMULAN.'"],
+      ["amihan", "Isang propesiya... Dugo ng dalawang bayan. Liwayway at Dumalagan."],
+      ["bagwis", "Kung gayon, hindi aksidente ang digmaang ito. May gustong mangyari ito."]
+    ]
+  },
+
+  "manlalakbay": {
+    "do": {"set": {"heard_sigbin": true}},
+    "lines": [
+      ["manlalakbay", "Huwag kang mag-alala, hindi ako bandido. Nangangalap lang ako ng mga piraso ng lumang mundo para ibenta."],
+      ["manlalakbay", "Ang mga pari ng Dambana? Oo, may isang madalas pumunta rito tuwing gabi. Papunta sa hilaga, kung saan nakatira ang sigbin."],
+      ["manlalakbay", "Kakatwa. Hindi siya inaatake ng halimaw. Para bang... alaga niya ito."]
+    ]
+  },
+
+  "sigbin": {
+    "do": {"battle": "sigbin_boss"},
+    "lines": [
+      ["", "Isang nilalang na parang asong walang balat ang humarang sa inyo. Nakasilip ang ulo nito mula sa pagitan ng mga binti: isang sigbin, alaga ng mga mangkukulam."],
+      ["bagwis", "Bantay iyan! May binabantayan siya sa likod!"]
+    ]
+  },
+  "sigbin_after": {
+    "lines": [
+      ["", "Umungol ang sigbin at naglaho na parang usok, nag-iiwan ng amoy ng sunog na insenso."],
+      ["amihan", "Insenso ng Dambana... Tingnan natin ang dibdib na binabantayan nito."]
+    ]
+  },
+
+  "dibdib": {
+    "if": {"flag": "sigbin_defeated"},
+    "else": "dibdib_locked",
+    "next": "dibdib_open"
+  },
+  "dibdib_open": {
+    "if": {"not_clue": "sulat"},
+    "else": "dibdib_empty",
+    "do": {"clue": "sulat", "gold": 120, "set": {"objective": "Bumalik sa Halina. Kausapin si Lakan Dumalaw para simulan ang paglilitis."}},
+    "lines": [
+      ["", "Sa loob ng dibdib: mga balumbon ng lumang Ma-i, isang supot ng ginto, at isang bagong sulat na may selyo. Isang ahas na lumalamon ng buwan."],
+      ["", "'Kapatid. Nailagay ko na ang ugat sa alak ng kapayapaan. Pagsapit ng ikatlong araw, sisiklab ang digmaan at dadalhin nila ang mga Mutya sa larangan. Ihanda ang ritwal sa Guho. -B.'"],
+      ["bagwis", "'B.' ...Banal."],
+      ["amihan", "Ang Kapatiran ng Bakunawa. Hindi lang ito pagpatay, Bagwis. Gusto nilang gisingin ang ahas."],
+      ["amihan", "Kailangan nating bumalik sa Halina. Ngayon na."]
+    ]
+  },
+  "dibdib_empty": {
+    "lines": [["", "Wala nang laman ang dibdib."]]
+  },
+  "dibdib_locked": {
+    "lines": [["", "Isang lumang dibdib na bakal. May halimaw na nakabantay dito. Hindi kayo makakapagbukas nang hindi muna ito hinaharap."]]
+  }
+}
