@@ -1,14 +1,15 @@
 extends Node
-## Builds pixel-art character textures at runtime from tiny text templates,
-## so the game needs no image files to run. Each character in
-## data/characters.json picks a body template and a palette.
+## Character art. Uses the anime-style art in res://art/characters/<id>.svg
+## (made by tools/gen_art.py) and res://art/portraits/<id>.svg for dialogue.
+## Characters without art fall back to tiny pixel sprites built at runtime
+## from the text templates below (data/characters.json picks body + palette).
 ##
 ## Palette letters: h hair, s skin, e eyes, o outfit, a accent, b boots,
 ## w metal/white. "." is transparent. An outline and a simple right-side
 ## shade are added automatically.
 ##
 ## To use hand-drawn art instead, put a PNG at res://art/characters/<id>.png
-## and it is used in place of the generated sprite.
+## (and optionally res://art/portraits/<id>.png); PNG wins over SVG.
 
 const OUTLINE := Color("#140f1c")
 const DEFAULTS := {
@@ -187,14 +188,36 @@ var _cache := {}
 func texture(char_id: String) -> Texture2D:
 	if _cache.has(char_id):
 		return _cache[char_id]
-	var custom := "res://art/characters/%s.png" % char_id
-	if ResourceLoader.exists(custom):
-		_cache[char_id] = load(custom)
-		return _cache[char_id]
+	var art := _art("characters", char_id)
+	if art:
+		_cache[char_id] = art
+		return art
 	var info: Dictionary = GameState.db["characters"].get(char_id, {})
 	var tex := ImageTexture.create_from_image(build_image(info.get("body", "tunic"), info.get("colors", {})))
 	_cache[char_id] = tex
 	return tex
+
+
+## Bust shot for dialogue boxes; falls back to the full-body texture.
+func portrait(char_id: String) -> Texture2D:
+	var key := "portrait:" + char_id
+	if not _cache.has(key):
+		var art := _art("portraits", char_id)
+		_cache[key] = art if art else texture(char_id)
+	return _cache[key]
+
+
+## True when the character uses smooth (non-pixel) art.
+func is_smooth(tex: Texture2D) -> bool:
+	return tex != null and tex.get_height() > 64
+
+
+func _art(folder: String, char_id: String) -> Texture2D:
+	for ext in ["png", "svg"]:
+		var p := "res://art/%s/%s.%s" % [folder, char_id, ext]
+		if ResourceLoader.exists(p):
+			return load(p)
+	return null
 
 
 func build_image(body_id: String, colors: Dictionary) -> Image:

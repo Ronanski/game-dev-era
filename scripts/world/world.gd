@@ -7,6 +7,7 @@ extends Node3D
 const SPEED := 4.6
 const TALK_RANGE := 2.0
 const PIXEL := 0.09
+const SPRITE_HEIGHT := 2.3  # world units for a full-size character
 const CAM_OFFSET := Vector3(0, 8.0, 10.5)
 
 var map: Dictionary
@@ -575,10 +576,11 @@ func _build_exits() -> void:
 func _make_sprite(char_id: String) -> Sprite3D:
 	var s := Sprite3D.new()
 	s.texture = Sprites.texture(char_id)
-	s.pixel_size = PIXEL
+	var smooth := Sprites.is_smooth(s.texture)
+	s.pixel_size = SPRITE_HEIGHT / s.texture.get_height() if smooth else PIXEL
 	s.billboard = BaseMaterial3D.BILLBOARD_FIXED_Y
-	s.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-	s.alpha_cut = SpriteBase3D.ALPHA_CUT_DISCARD
+	s.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS if smooth else BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	s.alpha_cut = SpriteBase3D.ALPHA_CUT_OPAQUE_PREPASS if smooth else SpriteBase3D.ALPHA_CUT_DISCARD
 	s.shaded = false
 	s.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	s.centered = true
@@ -612,11 +614,12 @@ func _build_actors() -> void:
 		var look: String = a.get("look", a["id"])
 		var spr := _make_sprite(look)
 		if a.has("scale"):
-			spr.pixel_size = PIXEL * float(a["scale"])
+			spr.pixel_size *= float(a["scale"])
 			spr.offset.y = spr.texture.get_height() / 2.0
 		root.add_child(spr)
 		var shape: CollisionShape3D = null
 		if look == "sparkle":
+			spr.pixel_size *= 0.45
 			spr.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			_light(root.position + Vector3(0, 0.6, 0), "#fff2a8", 0.8, 2.5)
 		else:

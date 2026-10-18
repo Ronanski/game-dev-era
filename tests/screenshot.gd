@@ -29,6 +29,11 @@ func _run() -> void:
 		gs.return_pos = spots[map_id]
 		gs.goto("world")
 		await _shot(map_id, 90)
+		if map_id == "halina":
+			root.get_node("Dialogue").run("halina", "pacing_waiting")
+			await _shot("dialogue", 200)
+			root.get_node("Dialogue")._press()
+			await _shot("dialogue_end", 30)
 	gs.battle_group = "kapre_boss"
 	gs.goto("battle")
 	await _shot("battle", 150)

@@ -524,10 +524,10 @@ func _build_ui() -> void:
 		card.alignment = BoxContainer.ALIGNMENT_END
 		var spr := TextureRect.new()
 		spr.texture = Sprites.texture(e.get("look", e["id"]))
-		spr.custom_minimum_size = Vector2(220, 260) if big else Vector2(150, 180)
+		spr.custom_minimum_size = Vector2(240, 300) if big else Vector2(150, 220)
 		spr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		spr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		spr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		spr.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 		spr.flip_h = true
 		card.add_child(spr)
 		var name_l := Label.new()
@@ -569,11 +569,11 @@ func _build_ui() -> void:
 		row.add_theme_constant_override("separation", 10)
 		card.add_child(row)
 		var spr := TextureRect.new()
-		spr.texture = Sprites.texture(m["id"])
-		spr.custom_minimum_size = Vector2(64, 76)
+		spr.texture = Sprites.portrait(m["id"])
+		spr.custom_minimum_size = Vector2(76, 76)
 		spr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		spr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		spr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		spr.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 		row.add_child(spr)
 		var col := VBoxContainer.new()
 		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL

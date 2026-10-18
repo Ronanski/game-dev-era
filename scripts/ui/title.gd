@@ -35,6 +35,21 @@ func _ready() -> void:
 	bite.size = Vector2(260, 260)
 	_moon.add_child(bite)
 
+	var hero := TextureRect.new()
+	hero.texture = Sprites.texture("amihan")
+	hero.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	hero.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	hero.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	hero.anchor_left = 0.5
+	hero.anchor_right = 0.5
+	hero.anchor_top = 1.0
+	hero.anchor_bottom = 1.0
+	hero.offset_left = 140
+	hero.offset_right = 420
+	hero.offset_top = -440
+	hero.offset_bottom = -20
+	add_child(hero)
+
 	var col := VBoxContainer.new()
 	col.anchor_top = 0.0
 	col.anchor_bottom = 1.0

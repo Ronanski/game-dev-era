@@ -4,8 +4,8 @@
 
 Isang story-driven JRPG para sa **Windows at Android**, gawa sa libreng
 [Godot 4](https://godotengine.org). Kwento at desisyon ang bida, hindi ang
-mamahaling graphics, pero naka-HD-2D style ito (3D na mundo + pixel-art
-sprites, katulad ng Octopath Traveler).
+mamahaling graphics, pero naka-HD-2D style ito (3D na mundo + anime-style
+na mga tauhan, katulad ng Octopath Traveler).
 
 > Tatlong daang taon na mula nang lamunin ng Bakunawa ang anim sa pitong buwan.
 > Sa bayan ng Halina, sa hangganan ng dalawang kahariang magkaaway, pinatay ang
@@ -16,6 +16,9 @@ sprites, katulad ng Octopath Traveler).
 | --- | --- |
 | ![Bayan ng Halina](docs/screenshots/halina.png) | ![Gubat ng Tikbalang](docs/screenshots/gubat.png) |
 | ![Guho ng Unang Buwan](docs/screenshots/guho.png) | ![Labanan sa Kapre](docs/screenshots/battle.png) |
+| ![Dialogue](docs/screenshots/dialogue.png) | ![Title](docs/screenshots/title.png) |
+
+![Mga tauhan](docs/screenshots/portraits.png)
 
 ## Ano ang meron
 
@@ -83,7 +86,8 @@ Nasa `data/` ang lahat ng content, sa JSON:
 | --- | --- |
 | `data/dialogue/*.json` | Lahat ng usapan, choices, at kondisyon |
 | `data/maps/*.json` | Layout ng mapa, NPCs, labasan, random encounters |
-| `data/characters.json` | Pangalan at kulay ng pixel sprite ng bawat tauhan |
+| `data/characters.json` | Pangalan ng bawat tauhan |
+| `tools/gen_art.py` | Itsura ng bawat tauhan (buhok, mata, damit, kulay, sandata) |
 | `data/party.json`, `skills.json` | Stats at kasanayan ng grupo |
 | `data/enemies.json`, `encounters.json` | Mga kalaban at labanan |
 | `data/clues.json`, `endings.json`, `quests.json` | Clues, endings, side quests |
@@ -117,15 +121,22 @@ godot --headless --path . -s tests/playthrough.gd -- --route=best   # best | par
 
 **Ang style, oo. Ang art quality, depende sa assets.**
 
-- Naka-setup na ang HD-2D look: 3D na mundo, pixel-art billboard sprites,
+- Naka-setup na ang HD-2D look: 3D na mundo, billboard na mga tauhan,
   tilt-shift depth of field, bloom, fog, at dynamic lights. Lahat libre sa Godot.
-- Ang sprites ngayon ay ginagawa ng code mula sa maliliit na template
-  (`scripts/autoload/sprite_factory.gd`), kaya walang kailangang image file.
-- **Pag-upgrade:** maglagay ng PNG sa `art/characters/<id>.png` (hal. `art/characters/amihan.png`)
-  at iyon na ang gagamitin. Mga libreng mapagkukunan ng art:
-  [itch.io free assets](https://itch.io/game-assets/free),
+- **Anime-style ang mga tauhan**: malalaking makintab na mata, buhok na may
+  kintab, cel shading. Vector art (SVG) ang mga ito na ginawa ng
+  `tools/gen_art.py`, kaya malinaw kahit anong laki ng screen.
+  - Full body: `art/characters/<id>.svg` (sa mapa at labanan)
+  - Bust portrait: `art/portraits/<id>.svg` (sa dialogue)
+- **Baguhin ang itsura**: i-edit ang listahang `C` sa `tools/gen_art.py`
+  (hal. `hair_style="ponytail"`, `eyes="#2fb3a8"`, `outfit="armor"`,
+  `weapon="sword"`), tapos patakbuhin ang `python3 tools/gen_art.py`.
+  Silipin lahat: `godot --headless --path . -s tests/art_gallery.gd -- --out=gallery.png`
+- **Sariling drawing**: maglagay ng PNG sa `art/characters/<id>.png` at/o
+  `art/portraits/<id>.png`. Mas inuuna ang PNG kaysa sa SVG.
+  Libreng drawing tools: [Krita](https://krita.org), [Inkscape](https://inkscape.org).
+  Libreng art: [itch.io free assets](https://itch.io/game-assets/free),
   [OpenGameArt](https://opengameart.org), [Kenney](https://kenney.nl) (CC0).
-  Libreng pixel-art tools: [LibreSprite](https://libresprite.github.io), [Pixelorama](https://orama-interactive.itch.io/pixelorama).
 
 ## Istruktura
 
@@ -133,7 +144,9 @@ godot --headless --path . -s tests/playthrough.gd -- --route=best   # best | par
 project.godot            Godot project (Mobile renderer, landscape)
 export_presets.cfg       Windows + Android export settings
 scenes/                  title, world, battle, ending
-scripts/autoload/        GameState (flags, save), Dialogue (UI), Sprites (pixel art)
+scripts/autoload/        GameState (flags, save), Dialogue (UI), Sprites (character art)
+art/                     Anime-style na tauhan (SVG): characters/ at portraits/
+tools/gen_art.py         Gumagawa ng art ng mga tauhan
 scripts/world/           World builder, HUD/Talaan, touch controls
 scripts/battle/          Turn-based battle (Break + Boost)
 scripts/ui/              Title at Ending screens
@@ -146,5 +159,5 @@ tests/                   Data validator, automated playthrough, screenshots
 - Kabanata 2 (paghabol sa Kapatiran ng Bakunawa)
 - Musika at sound effects (libre: [freesound.org](https://freesound.org), [OpenGameArt](https://opengameart.org))
 - EXP at level-up, mga bagong job/class
-- Hand-drawn na sprites at portraits
+- Walking animation at iba't ibang expression ng mukha sa dialogue
 - English translation

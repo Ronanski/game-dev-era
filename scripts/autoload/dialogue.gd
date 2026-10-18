@@ -104,7 +104,8 @@ func _show_line(speaker: String, text: String, wait: bool) -> void:
 	_name.visible = speaker != ""
 	_portrait.visible = speaker != ""
 	if speaker != "":
-		_portrait.texture = Sprites.texture(speaker)
+		_portrait.texture = Sprites.portrait(speaker)
+		_portrait.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR if Sprites.is_smooth(_portrait.texture) else CanvasItem.TEXTURE_FILTER_NEAREST
 		_text.text = text
 	else:
 		_text.text = "[color=%s][i]%s[/i][/color]" % [NARRATION_COLOR, text]
@@ -226,7 +227,7 @@ func _build() -> void:
 	_panel.add_child(row)
 
 	_portrait = TextureRect.new()
-	_portrait.custom_minimum_size = Vector2(150, 170)
+	_portrait.custom_minimum_size = Vector2(180, 180)
 	_portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	_portrait.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
