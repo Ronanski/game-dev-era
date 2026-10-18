@@ -1,0 +1,119 @@
+name: Matalino (Android)
+
+on:
+  push:
+    paths:
+      - "matalino/**"
+      - ".github/workflows/matalino.yml"
+  pull_request:
+    paths:
+      - "matalino/**"
+      - ".github/workflows/matalino.yml"
+  workflow_dispatch:
+
+env:
+  GODOT_VERSION: "4.3"
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    working-directory: matalino
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Cache Godot
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: ~/godot-cache
+          key: godot-${{ env.GODOT_VERSION }}
+
+      - name: Download Godot and export templates
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        working-directory: .
+        run: |
+          mkdir -p ~/godot-cache
+          cd ~/godot-cache
+          base=https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable
+          wget -q $base/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip
+          wget -q $base/Godot_v${GODOT_VERSION}-stable_export_templates.tpz
+
+      - name: Install Godot
+        working-directory: .
+        run: |
+          cd ~/godot-cache
+          unzip -o -q Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip
+          sudo mv Godot_v${GODOT_VERSION}-stable_linux.x86_64 /usr/local/bin/godot
+          tpl=~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          mkdir -p $tpl
+          unzip -o -q Godot_v${GODOT_VERSION}-stable_export_templates.tpz -d /tmp/tpl
+          mv /tmp/tpl/templates/* $tpl/
+          godot --version
+
+      - name: Configure Android signing (debug key)
+        run: |
+          keytool -genkeypair -v -keystore ~/debug.keystore -alias androiddebugkey \
+            -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android \
+            -dname "CN=Android Debug,O=Android,C=US"
+          mkdir -p ~/.config/godot
+          for f in editor_settings-4.tres editor_settings-${GODOT_VERSION}.tres; do
+            cat > ~/.config/godot/$f <<EOF
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_SDK_ROOT"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          export/android/debug_keystore = "$HOME/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          EOF
+          done
+
+      - name: Import project
+        run: godot --headless --path . --import || true
+
+      - name: Puzzle generator tests
+        run: |
+          godot --headless --path . res://tests/test_generators.tscn 2>&1 | tee /tmp/gen.log
+          grep -q "RESULT: PASS" /tmp/gen.log
+
+      - name: Automated play-through (all games)
+        run: |
+          godot --headless --path . res://tests/test_play.tscn 2>&1 | tee /tmp/play.log
+          grep -q "RESULT: PASS" /tmp/play.log
+
+      - name: Export Android (APK)
+        run: |
+          mkdir -p build/android
+          godot --headless --path . --export-debug "Android" build/android/Matalino.apk
+          ls -la build/android
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Matalino-Android
+          path: matalino/build/android/*.apk
+
+      - name: Publish latest build (direct download link)
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: matalino-latest
+          name: Matalino (latest)
+          target_commitish: ${{ github.sha }}
+          make_latest: false
+          body: |
+            Awtomatikong build ng **Matalino** mula sa `main` (commit ${{ github.sha }}).
+
+            I-download ang `Matalino.apk`, buksan sa phone, at i-allow ang "Install unknown apps".
+          files: matalino/build/android/Matalino.apk
