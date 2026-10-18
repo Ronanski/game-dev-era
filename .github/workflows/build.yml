@@ -106,6 +106,23 @@ jobs:
           name: AlamatNgHulingBuwan-Android
           path: build/android/*.apk
 
+      - name: Publish latest build (direct download links)
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Pinakabagong Build
+          target_commitish: ${{ github.sha }}
+          make_latest: true
+          body: |
+            Awtomatikong build mula sa `main` (commit ${{ github.sha }}).
+
+            - **Android:** i-download ang `AlamatNgHulingBuwan.apk`, buksan, at i-allow ang "Install unknown apps".
+            - **Windows:** i-download ang `AlamatNgHulingBuwan.exe` at i-double-click.
+          files: |
+            build/windows/AlamatNgHulingBuwan.exe
+            build/android/AlamatNgHulingBuwan.apk
+
       - name: Publish release (on version tags)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
