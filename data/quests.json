@@ -1,0 +1,7 @@
+[
+  {"if": {"flag": "quest_pepe", "not_flag": "pepe_saved"}, "text": "Hanapin si Pepe sa Gubat ng Tikbalang (hilagang-kanlurang bahagi)."},
+  {"if": {"flag": "pepe_saved", "not_flag": "pacing_reward"}, "text": "Ibalik si Pepe kay Aling Pacing sa Halina."},
+  {"if": {"flag": "met_tala", "not_member": "tala"}, "text": "(Opsyonal) Isama si Tala sa grupo. Nasa palengke siya."},
+  {"if": {"clue": "tala_tip", "not_clue": "sulat"}, "text": "Alamin kung ano ang dinala ni Apo Banal sa Guho ng Unang Buwan."},
+  {"if": {"clue": "tasa", "not_flag": "tik_solved"}, "text": "Kausapin ang Tikbalang sa ilalim ng balete. Mahilig daw siya sa bugtong."}
+]

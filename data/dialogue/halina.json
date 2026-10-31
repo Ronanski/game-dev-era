@@ -1,0 +1,527 @@
+{
+  "intro": {
+    "do": {"set": {"intro_done": true}},
+    "lines": [
+      ["", "Tatlong daang taon na ang lumipas mula nang lamunin ng Bakunawa ang anim sa pitong buwan."],
+      ["", "Gumuho ang dakilang imperyo ng Ma-i. Ang natira: mga kahariang nag-aagawan sa mga pira-piraso ng huling liwanag, ang mga Mutya ng Buwan."],
+      ["", "Bayan ng Halina. Ang hangganan ng Kaharian ng Liwayway at ng Rajahnato ng Dumalagan. Dito sana pipirmahan ang kasunduang pangkapayapaan..."],
+      ["bagwis", "Amihan! Gising ka na ba? May masamang balita."],
+      ["amihan", "Bagwis? Ano'ng nangyari? Bakit nagkakagulo sa labas?"],
+      ["bagwis", "Patay na si Datu Makisig. Natagpuan siya kaninang madaling-araw sa loob ng tolda ng konseho."],
+      ["amihan", "Ang sugo ng kapayapaan... patay? Ngayong araw sana ang pirmahan!"],
+      ["bagwis", "Sinisisi ng Dumalagan ang mga kabalyero ng Liwayway. Ang Liwayway naman, sinasabing pakana ito ng mga datu para may dahilan silang sumalakay."],
+      ["bagwis", "Ipinatawag tayo ni Lakan Dumalaw, ang kapatid ng Datu. Ikaw raw ang babaylang may 'matang nakakakita ng katotohanan.'"],
+      ["amihan", "Dating babaylan. Pinalayas ako ng Templo, alam mo 'yan."],
+      ["bagwis", "Wala na silang ibang mapagpipilian, kaibigan. Tatlong araw. Kapag hindi natin nahanap ang tunay na pumatay, digmaan."]
+    ],
+    "choices": [
+      {"text": "Tutulong ako. Para sa kapayapaan.", "next": "intro_a"},
+      {"text": "Tutulong ako... pero may bayad 'to.", "next": "intro_b"},
+      {"text": "Bakit ako pa? Bahala na kayo.", "next": "intro_c"}
+    ]
+  },
+  "intro_a": {
+    "do": {"set": {"motive": "kapayapaan"}},
+    "lines": [["bagwis", "Iyan ang Amihan na kilala ko."]],
+    "next": "intro_end"
+  },
+  "intro_b": {
+    "do": {"set": {"wants_pay": true}},
+    "lines": [["bagwis", "Hah! Sasabihin ko kay Lakan Dumalaw. Mukhang handa siyang magbayad ng kahit magkano."]],
+    "next": "intro_end"
+  },
+  "intro_c": {
+    "lines": [
+      ["bagwis", "Kapag sumiklab ang digmaan, unang masusunog ang mga bayang tulad nito. Pati ang templong nagpalayas sa 'yo. Pati ang mga batang naglalaro sa plaza."],
+      ["amihan", "...Sige na nga. Hindi para sa kanila. Para sa mga bata."]
+    ],
+    "next": "intro_end"
+  },
+  "intro_end": {
+    "do": {"join": "bagwis", "set": {"objective": "Kausapin si Lakan Dumalaw sa tolda ng konseho (hilagang-kanluran ng plaza)."}},
+    "lines": [
+      ["bagwis", "Nasa tolda ng konseho si Lakan Dumalaw, sa hilagang-kanluran ng plaza. Nandoon din ang bantay na si Lito."],
+      ["", "TIP: Lumapit sa mga tao at pindutin ang E o Space (o ang bilog na button sa phone) para makipag-usap o mag-usisa. Buksan ang Talaan (J o Tab) para makita ang mga clue at layunin."],
+      ["", "May TATLONG ARAW kayo. Ang pagpapahinga sa Bahay-Panuluyan ay nagpapagaling sa grupo, pero nagpapalipas ng isang araw."]
+    ]
+  },
+
+  "dumalaw": {
+    "if": {"not_flag": "met_dumalaw"},
+    "else": "dumalaw_hub",
+    "do": {"set": {"met_dumalaw": true, "objective": "Siyasatin ang tolda ng konseho. Kausapin si Bantay Lito at ang mga pinaghihinalaan."}},
+    "lines": [
+      ["dumalaw", "Babaylan. Salamat sa pagdating. Ako si Lakan Dumalaw."],
+      ["dumalaw", "Ang kapatid ko... nilason. Walang sugat, walang dugo. Natagpuan lang siyang nakahandusay, nangingitim ang mga labi."],
+      ["dumalaw", "Ang mga kabalyero ng Liwayway ang huling kausap niya. Gusto nang sumugod ng aking mga mandirigma, ngayon din."],
+      ["dumalaw", "Napigilan ko sila hanggang sa ikatlong araw. Pagsapit noon, kung wala kang maipakitang katotohanan, ako mismo ang mangunguna sa digmaan."]
+    ],
+    "next": "dumalaw_pay"
+  },
+  "dumalaw_pay": {
+    "if": {"flag": "wants_pay", "not_flag": "paid"},
+    "else": "dumalaw_hub",
+    "do": {"gold": 50, "set": {"paid": true}},
+    "lines": [["dumalaw", "At oo, nabanggit ni Bagwis ang iyong bayad. Heto ang paunang limampu. Mas malaki pa riyan kapag nahuli mo ang tunay na salarin."]],
+    "next": "dumalaw_hub"
+  },
+  "dumalaw_hub": {
+    "lines": [["dumalaw", "Ano ang iyong ulat, babaylan?"]],
+    "choices": [
+      {"text": "Ano ang nangyari sa iyong kapatid?", "next": "dumalaw_brother"},
+      {"text": "Ano ang mga Mutya ng Buwan?", "next": "dumalaw_mutya"},
+      {"text": "Bakit ako ang ipinatawag mo?", "next": "dumalaw_why"},
+      {"text": "Handa na akong ituro ang salarin.", "next": "dumalaw_confirm"},
+      {"text": "Babalik ako.", "next": ""}
+    ]
+  },
+  "dumalaw_brother": {
+    "lines": [
+      ["dumalaw", "Uminom siya ng alak ng kapayapaan bago matulog, gaya ng tradisyon. Kinaumagahan... nangingitim na ang kanyang mga labi."],
+      ["dumalaw", "Walang sugat. Walang dugo. Kaya alam kong lason ito, hindi espada, kahit anong sigaw ng aking mga mandirigma."]
+    ],
+    "next": "dumalaw_hub"
+  },
+  "dumalaw_mutya": {
+    "do": {"set": {"lore_mutya": true}},
+    "lines": [
+      ["dumalaw", "Mga piraso ng mga buwang nilamon ng Bakunawa. Nagbibigay sila ng liwanag at lakas sa sinumang may hawak."],
+      ["dumalaw", "Ang Dumalagan ay may dalawa. Ang Liwayway, tatlo. Ayon sa kasunduan, hindi na sila gagamitin sa digmaan. Kailanman."]
+    ],
+    "next": "dumalaw_hub"
+  },
+  "dumalaw_why": {
+    "lines": [
+      ["dumalaw", "Dahil hindi ka taga-Liwayway, at hindi ka rin taga-Dumalagan. Pinalayas ka ng Templo, kaya wala kang pinapanigan."],
+      ["dumalaw", "At sabi ng matatanda, ang babaylang tumanggi sa utos ng Templo ang tanging babaylang hindi marunong magsinungaling."],
+      ["amihan", "(Kung alam lang nila kung bakit talaga ako pinalayas...)"]
+    ],
+    "next": "dumalaw_hub"
+  },
+  "dumalaw_confirm": {
+    "lines": [["dumalaw", "Kapag sinimulan natin ang paglilitis, wala nang atrasan. Sigurado ka na ba?"]],
+    "choices": [
+      {"text": "Oo. Simulan na natin.", "next": "trial:start"},
+      {"text": "Hindi pa. Kailangan ko pa ng patunay.", "next": "dumalaw_hub"}
+    ]
+  },
+
+  "lito_1": {
+    "do": {"clue": "testimonya"},
+    "lines": [
+      ["lito", "Babaylan! Hindi ako natulog buong gabi, isinusumpa ko sa Huling Buwan!"],
+      ["amihan", "Naniniwala ako sa 'yo. Sino ang pumasok sa tolda kagabi?"],
+      ["lito", "Tatlo lang po. Una, si Sir Gaspar ng Liwayway, dala ang mga kondisyon ng kasunduan."],
+      ["lito", "Pangalawa, si Dayang Hiraya, anak ng Datu. Nagsigawan sila. Rinig ko hanggang dito."],
+      ["lito", "At pangatlo, si Apo Banal, ang punong-pari ng Dambana ng Buwan. Binasbasan niya ang alak para sa pirmahan."]
+    ],
+    "next": "lito_menu"
+  },
+  "lito_2": {
+    "lines": [["lito", "May iba pa po ba kayong itatanong?"]],
+    "next": "lito_menu"
+  },
+  "lito_menu": {
+    "choices": [
+      {"text": "Ano ang pinagsigawan nila ni Hiraya?", "next": "lito_hiraya"},
+      {"text": "Sino ang huling lumabas?", "next": "lito_last"},
+      {"text": "Saan galing ang alak?", "next": "lito_wine"},
+      {"text": "Salamat, Lito.", "next": ""}
+    ]
+  },
+  "lito_hiraya": {
+    "lines": [
+      ["lito", "Tungkol po sa kasal. Ipapakasal siya ng Datu sa prinsipe ng Liwayway bilang selyo ng kapayapaan."],
+      ["lito", "Sumigaw ang Dayang na mas gugustuhin pa niyang mamatay. Tapos tumakbo siya palabas... papuntang gubat, sa tingin ko."]
+    ],
+    "next": "lito_menu"
+  },
+  "lito_last": {
+    "lines": [
+      ["lito", "Si Apo Banal po. Mga isang oras bago maghatinggabi. Nakangiti pa nga, nagdarasal."],
+      ["lito", "Pagkatapos noon, wala nang pumasok. Hanggang madaling-araw, nang matagpuan namin ang Datu."]
+    ],
+    "next": "lito_menu"
+  },
+  "lito_wine": {
+    "do": {"set": {"wine_from_shrine": true}},
+    "lines": [["lito", "Galing mismo sa Dambana ng Buwan. Tradisyon po iyon. Si Apo Banal lang ang humahawak sa alak ng kapayapaan hanggang sa inumin ito."]],
+    "next": "lito_menu"
+  },
+
+  "tasa_1": {
+    "do": {"clue": "tasa", "set": {"objective": "Alamin kung sino ang kumuha ng ugat ng hatinggabi sa Gubat ng Tikbalang (hilaga ng bayan)."}},
+    "lines": [
+      ["", "Isang tasang tanso sa mesang pinagsaluhan ng Datu at ng mga panauhin. May itim at malagkit na latak sa ilalim."],
+      ["amihan", "Amoy lupa... at matamis. Hindi lang ito alak."],
+      ["bagwis", "Lason?"],
+      ["amihan", "Ugat ng hatinggabi. Itinuro ito sa amin sa templo. Isang patak, at hihinto ang puso bago sumikat ang araw."],
+      ["amihan", "Tumutubo lang ito sa paanan ng mga puno ng balete, sa malalim na gubat. Sa Gubat ng Tikbalang, sa hilaga."]
+    ]
+  },
+  "tasa_2": {
+    "lines": [["", "Ang tasang may itim na latak ng ugat ng hatinggabi."]]
+  },
+
+  "gaspar_1": {
+    "do": {"set": {"met_gaspar": true}},
+    "lines": [
+      ["gaspar", "Kung narito ka para arestuhin ako, babaylan, gawin mo na. Pagod na akong ipagtanggol ang sarili ko."],
+      ["bagwis", "...Sir Gaspar."],
+      ["gaspar", "Bagwis. Ang dati kong eskudero. Akala ko ba hindi ka na lalapit sa sinumang may suot na baluti ng Liwayway?"],
+      ["bagwis", "Hindi ako bumalik para sa Liwayway. Bumalik ako para sa katotohanan."]
+    ],
+    "next": "gaspar_menu"
+  },
+  "gaspar_again": {
+    "lines": [["gaspar", "Ano pa ang gusto mong malaman, babaylan?"]],
+    "next": "gaspar_menu"
+  },
+  "gaspar_menu": {
+    "choices": [
+      {"text": "Pumasok ka sa tolda kagabi. Bakit?", "next": "gaspar_why"},
+      {"text": "Ipakita mo sa akin ang iyong espada.", "next": "gaspar_sword", "if": {"not_clue": "walang_sugat"}},
+      {"text": "Gusto mo ba ang digmaan?", "next": "gaspar_war"},
+      {"text": "Ano ang pinagsamahan ninyo ni Bagwis?", "next": "gaspar_bagwis"},
+      {"text": "Paalam.", "next": ""}
+    ]
+  },
+  "gaspar_why": {
+    "lines": [
+      ["gaspar", "Upang ihatid ang mga kondisyon ng Hari. Tatlong pahina ng mga pangakong walang balak tuparin ang alinmang panig."],
+      ["gaspar", "Umalis ako bago maghatinggabi. Buhay pa noon ang Datu, nagrereklamo pa nga sa lasa ng alak. 'Masyadong matamis,' sabi niya."],
+      ["amihan", "(Masyadong matamis... Matamis ang ugat ng hatinggabi.)"]
+    ],
+    "next": "gaspar_menu"
+  },
+  "gaspar_sword": {
+    "do": {"clue": "walang_sugat"},
+    "lines": [
+      ["gaspar", "Heh. Sige. Tingnan mo."],
+      ["", "Hinugot ni Gaspar ang kanyang espada. Malinis ang talim: walang bakas ng dugo, walang bagong hasa."],
+      ["amihan", "Walang sugat ang Datu. Nilason siya. Hindi espada ang pumatay sa kanya."],
+      ["gaspar", "Kung gayon, alam mong wala akong sala. Pero hindi iyan ang paniniwalaan ng mga mandirigma ng Dumalagan. Kailangan nila ng kabalyerong ibibitin."]
+    ],
+    "next": "gaspar_menu"
+  },
+  "gaspar_war": {
+    "do": {"set": {"gaspar_trust": true}},
+    "lines": [
+      ["gaspar", "Nakita ko na ang digmaan, babaylan. Sa ilalim ng anim na patay na buwan, inilibing ko ang kalahati ng aking mga kapatid."],
+      ["gaspar", "Hindi. Ayoko na. Kaya nga ako ang ipinadala. Ako lang sa mga kabalyero ang gustong umuwing buhay ang lahat."]
+    ],
+    "next": "gaspar_menu"
+  },
+  "gaspar_bagwis": {
+    "lines": [
+      ["gaspar", "Tinuruan ko siyang humawak ng espada noong labindalawang taong gulang pa lang siya."],
+      ["bagwis", "At pinalayas ako ng Hari nang tumanggi akong sunugin ang isang nayon sa hangganan. Hindi mo ako ipinagtanggol noon."],
+      ["gaspar", "...Hindi. At pinagsisisihan ko iyon araw-araw."]
+    ],
+    "next": "gaspar_menu"
+  },
+  "kabalyero": {
+    "lines": [
+      ["kabalyero", "Huwag kang lalapit sa tolda ni Sir Gaspar, babaylan. Utos iyan."],
+      ["kabalyero", "...Pero kung siya ang hinahanap mo, nasa labas lang siya. Hindi pa siya natutulog mula nang mangyari ito."]
+    ]
+  },
+
+  "hiraya_1": {
+    "do": {"set": {"met_hiraya": true}},
+    "lines": [
+      ["hiraya", "Pinadala ka ba ng tiyuhin ko para pagbintangan ako? Narinig ko na ang mga bulung-bulungan."],
+      ["hiraya", "'Pinatay ng anak ang sariling ama para takasan ang kasal.' Iyan ang sinasabi nila, hindi ba?"]
+    ],
+    "next": "hiraya_menu"
+  },
+  "hiraya_again": {
+    "lines": [["hiraya", "Ikaw na naman, babaylan."]],
+    "next": "hiraya_menu"
+  },
+  "hiraya_menu": {
+    "choices": [
+      {"text": "Ano ang pinagtalunan ninyo ng iyong ama?", "next": "hiraya_fight"},
+      {"text": "Saan ka nagpunta pagkatapos ninyong magtalo?", "next": "hiraya_where", "if": {"not_clue": "alibi_hiraya"}},
+      {"text": "Alam ko ang tungkol sa eskudero sa gubat.", "next": "hiraya_secret", "if": {"clue": "alibi_hiraya", "not_flag": "hiraya_trust"}},
+      {"text": "Ano ang masasabi mo kay Apo Banal?", "next": "hiraya_banal"},
+      {"text": "Paalam.", "next": ""}
+    ]
+  },
+  "hiraya_fight": {
+    "lines": [
+      ["hiraya", "Ang kasal. Ako raw ang 'selyo' ng kapayapaan. Parang tatak sa isang kasulatan. Parang kalakal."],
+      ["hiraya", "Sinabi ko sa kanya na mas gugustuhin ko pang mamatay."],
+      ["hiraya", "...Hindi ko akalaing siya pala ang mauuna."]
+    ],
+    "next": "hiraya_menu"
+  },
+  "hiraya_where": {
+    "do": {"set": {"hiraya_hiding": true}},
+    "lines": [
+      ["hiraya", "...Hindi mo kailangang malaman iyan."],
+      ["bagwis", "(pabulong) May itinatago siya, Amihan."]
+    ],
+    "next": "hiraya_menu"
+  },
+  "hiraya_secret": {
+    "do": {"set": {"hiraya_trust": true}},
+    "lines": [
+      ["hiraya", "Paano mo...? ...Ang Tikbalang. Siyempre."],
+      ["hiraya", "Oo. Si Dalisay. Eskudero siya ng Liwayway. Nagkikita kami sa ilalim ng balete tuwing hatinggabi."],
+      ["hiraya", "Kaya ayaw kong ipakasal sa prinsipe. Pero hindi ko papatayin ang ama ko dahil doon! Mahal ko siya... kahit kailan ay hindi niya ako pinakinggan."],
+      ["hiraya", "Pakiusap. Huwag mong sabihin kahit kanino. Kapag nalaman ng mga mandirigma, papatayin nila si Dalisay."]
+    ],
+    "next": "hiraya_menu"
+  },
+  "hiraya_banal": {
+    "do": {"set": {"heard_prayer": true}},
+    "lines": [
+      ["hiraya", "Siya ang nagturo sa akin ng mga dasal noong bata pa ako. Parang pangalawang ama."],
+      ["hiraya", "Pero nitong mga nakaraang buwan, iba na siya. Laging nagbabasa ng mga lumang balumbon mula sa Guho."],
+      ["hiraya", "Minsan, narinig ko siyang nagdarasal sa Dambana. Hindi sa Buwan... kundi sa Bakunawa."]
+    ],
+    "next": "hiraya_menu"
+  },
+
+  "banal_1": {
+    "do": {"set": {"met_banal": true}},
+    "lines": [
+      ["banal", "Pagpalain ka ng Huling Buwan, anak."],
+      ["banal", "Ikaw ang babaylang pinalayas ng Templo ng Sinukuan, hindi ba? Huwag kang mag-alala. May dahilan ang mga diwata sa lahat ng bagay."],
+      ["amihan", "(Masyadong malambing ang boses niya. Parang pulot na may nakatagong tinik.)"]
+    ],
+    "next": "banal_menu"
+  },
+  "banal_again": {
+    "lines": [["banal", "Bumalik ka, anak. Ano ang gumugulo sa iyong puso?"]],
+    "next": "banal_menu"
+  },
+  "banal_menu": {
+    "choices": [
+      {"text": "Binasbasan mo ang alak kagabi.", "next": "banal_wine"},
+      {"text": "Nasa gubat ka noong gabing iyon, hindi ba?", "next": "banal_forest", "if": {"any_clue": ["ugat", "putik", "puting_balabal"], "not_flag": "banal_lied"}},
+      {"text": "Kilala mo ba ang 'Kapatiran ng Bakunawa'?", "next": "banal_offer", "if": {"clue": "sulat", "not_flag": "banal_offer"}},
+      {"text": "Paalam, Apo.", "next": ""}
+    ]
+  },
+  "banal_wine": {
+    "lines": [
+      ["banal", "Oo. Tradisyon iyon. Ang alak ng kapayapaan ay dapat dumaan sa kamay ng Buwan bago inumin."],
+      ["banal", "Kung may lason man, tiyak na inilagay iyon pagkaalis ko. Si Sir Gaspar, marahil. O ang batang Dayang. Malupit ang kabataan kapag nasasaktan."]
+    ],
+    "next": "banal_menu"
+  },
+  "banal_forest": {
+    "do": {"set": {"banal_lied": true}},
+    "lines": [
+      ["banal", "Ako? Sa gubat?"],
+      ["banal", "...Ah. Oo. Nangunguha ako ng mga halamang-gamot. May sakit sa tuhod ang matatanda sa bayan, anak."],
+      ["amihan", "(Nagsisinungaling siya. Nanginig ang kamay niya, at tinakpan niya ang punit sa kanyang laylayan.)"]
+    ],
+    "next": "banal_menu"
+  },
+  "banal_offer": {
+    "do": {"set": {"banal_offer": true}},
+    "lines": [
+      ["banal", "...Matalino ka. Masyadong matalino para sa isang itinapon."],
+      ["banal", "Makinig ka. Hindi ninakaw ng Bakunawa ang mga buwan. IBINIGAY sila. Dahil bulok ang Ma-i, gaya ng Liwayway, gaya ng Dumalagan."],
+      ["banal", "Kapag nagdigmaan sila, dadalhin nila ang kanilang mga Mutya sa larangan. At doon, sa gitna ng dugo, babangon ang Bakunawa at lalamunin ang huling buwan. Isang bagong simula."],
+      ["banal", "Sumama ka sa amin, Amihan. Sa paglilitis, ituro mo ang kabalyero. At ibabalik ko sa iyo ang lahat ng kinuha ng Templo, at higit pa."]
+    ],
+    "choices": [
+      {"text": "...Sasama ako.", "next": "banal_join"},
+      {"text": "Hinding-hindi.", "next": "banal_refuse"}
+    ]
+  },
+  "banal_join": {
+    "do": {"set": {"kapatid": true}},
+    "lines": [
+      ["banal", "Mabuti. Napakabuti. Sa paglilitis, ituro mo si Sir Gaspar."],
+      ["bagwis", "Amihan?! Ano'ng sinasabi mo?!"],
+      ["amihan", "Magtiwala ka sa akin, Bagwis."],
+      ["bagwis", "...Sana nga."]
+    ]
+  },
+  "banal_refuse": {
+    "lines": [
+      ["banal", "Sayang. Kung gayon, magkita tayo sa paglilitis."],
+      ["banal", "Tingnan natin kung sino ang paniniwalaan nila: ang banal na paring naglingkod sa kanila nang apatnapung taon, o ang itinapong babaylan."]
+    ]
+  },
+
+  "tala_1": {
+    "do": {"set": {"met_tala": true}},
+    "lines": [
+      ["", "Isang dalagita ang mabilis na dumaan sa tabi mo. Halos tumama ang balikat niya sa iyo."],
+      ["amihan", "Teka... nasaan ang supot ko?"],
+      ["tala", "Supot? Anong supot? ...Ah, ITO bang supot?"]
+    ],
+    "choices": [
+      {"text": "Ibalik mo, at hindi kita isusumbong.", "next": "tala_kind"},
+      {"text": "Bantay! Magnanakaw!", "next": "tala_shout"}
+    ]
+  },
+  "tala_kind": {
+    "do": {"set": {"tala_friendly": true}},
+    "lines": [
+      ["tala", "Hmp. Ang bait mo naman. Nakakainis."],
+      ["tala", "Teka... ikaw 'yung babaylang nag-iimbestiga sa pagkamatay ng Datu, 'di ba? May alam ako. Pero may kapalit."]
+    ],
+    "next": "tala_deal"
+  },
+  "tala_shout": {
+    "do": {"gold": -20},
+    "lines": [
+      ["tala", "Tsk! Ang KJ!"],
+      ["", "Mabilis siyang nawala sa gitna ng mga tao, kasama ang dalawampung piraso ng iyong ginto."]
+    ]
+  },
+  "tala_again": {
+    "if": {"flag": "tala_friendly"},
+    "else": "tala_grudge",
+    "lines": [["tala", "O, kayo pala. Nagbago na ba ang isip ninyo?"]],
+    "next": "tala_deal"
+  },
+  "tala_grudge": {
+    "do": {"set": {"tala_friendly": true}},
+    "lines": [
+      ["tala", "Ikaw na naman? 'Yung sumigaw ng 'magnanakaw'? Hmp."],
+      ["tala", "...Pero sige. May alam ako tungkol sa Datu. Kung isasama ninyo ako sa paglalakbay, sasabihin ko."]
+    ],
+    "next": "tala_deal"
+  },
+  "tala_deal": {
+    "lines": [["tala", "Isama ninyo ako. Gusto ko nang umalis sa bayang ito, at mukhang kayo lang ang may lakas ng loob na pumasok sa Guho."]],
+    "choices": [
+      {"text": "Sige, sumama ka.", "next": "tala_join"},
+      {"text": "Hindi ka namin kailangan.", "next": "tala_no"}
+    ]
+  },
+  "tala_join": {
+    "do": {"join": "tala", "clue": "tala_tip"},
+    "lines": [
+      ["tala", "Ayos! Hindi kayo magsisisi. Magaling ako sa balaraw at pana."],
+      ["tala", "Ngayon, ang ipinangako ko. Kagabi, habang... ah, 'nagbabantay' ako sa likod ng Dambana, nakita ko si Apo Banal."],
+      ["tala", "May dala siyang supot ng mga lumang balumbon. Bago mag-umaga, dinala niya iyon sa Guho ng Unang Buwan, sa silangan. Mag-isa."],
+      ["bagwis", "Ang pari? Sa Guho? Delikado roon kahit sa mga mandirigma."],
+      ["tala", "Eksakto. Kaya nga kahina-hinala, 'di ba?"]
+    ]
+  },
+  "tala_no": {
+    "lines": [["tala", "Bahala kayo. Nandito lang ako sa palengke kung magbago ang isip ninyo."]]
+  },
+
+  "rosing": {
+    "lines": [["rosing", "Maligayang pagdating sa Bahay-Panuluyan! Malambot ang banig, mainit ang sabaw."]],
+    "next": "rosing_menu"
+  },
+  "rosing_menu": {
+    "choices": [
+      {"text": "Magpahinga (gagaling ang lahat, lilipas ang isang araw)", "next": "rosing_rest", "if": {"max_day": 2}},
+      {"text": "Magpahinga (gagaling ang lahat, lilipas ang isang araw)", "next": "rosing_rest_last", "if": {"min_day": 3}},
+      {"text": "May balita ka ba?", "next": "rosing_gossip"},
+      {"text": "Wala, salamat.", "next": ""}
+    ]
+  },
+  "rosing_rest": {
+    "do": {"rest": true},
+    "lines": [
+      ["", "Nakatulog kayo nang mahimbing. Gumaling ang buong grupo."],
+      ["rosing", "Magandang umaga! Mag-ingat kayo. Lalong umiinit ang mga ulo sa plaza."]
+    ]
+  },
+  "rosing_rest_last": {
+    "lines": [["rosing", "Iha... ito na ang huling gabi bago ang paglilitis. Kapag natulog kayo, paggising ninyo ay magsisimula na ito, handa man kayo o hindi."]],
+    "choices": [
+      {"text": "Matutulog na kami.", "next": "rosing_rest"},
+      {"text": "Hindi pa pala.", "next": ""}
+    ]
+  },
+  "rosing_gossip": {
+    "lines": [
+      ["rosing", "Si Apo Banal? Dati raw siyang iskolar na nag-aaral sa Guho bago naging pari. Matalino. Masyadong matalino, sabi ng asawa ko."],
+      ["rosing", "At may napansin ako. Nitong mga nakaraang linggo, ubos ang mga kandila sa Dambana tuwing umaga. Parang may nagdarasal doon buong gabi."]
+    ],
+    "next": "rosing_menu"
+  },
+
+  "ambo": {
+    "lines": [["ambo", "Halika, halika! Gamot, anting-anting, lahat ng kailangan ng manlalakbay!"]],
+    "next": "ambo_menu"
+  },
+  "ambo_menu": {
+    "choices": [
+      {"text": "Tonik - 20 ginto (+60 HP)", "if": {"gold": 20}, "do": {"gold": -20, "item": {"tonik": 1}}, "next": "ambo_menu"},
+      {"text": "Dahon ng Lagundi - 25 ginto (+25 SP)", "if": {"gold": 25}, "do": {"gold": -25, "item": {"lagundi": 1}}, "next": "ambo_menu"},
+      {"text": "Agimat - 60 ginto (bumubuhay ng bumagsak)", "if": {"gold": 60}, "do": {"gold": -60, "item": {"agimat": 1}}, "next": "ambo_menu"},
+      {"text": "May balita ka ba?", "next": "ambo_gossip"},
+      {"text": "Wala na, salamat.", "next": ""}
+    ]
+  },
+  "ambo_gossip": {
+    "lines": [
+      ["ambo", "Balita? Nagtataka ang mga manggagamot. Bawal kumuha ng ugat ng hatinggabi, kaya walang kumukuha. Pero may nakapansin daw ng bagong hukay sa gubat."],
+      ["ambo", "At kung pupunta kayo sa Gubat ng Tikbalang: kapag nakita ninyo ang Tikbalang, maging magalang kayo. Mahilig siya sa bugtong."]
+    ],
+    "next": "ambo_menu"
+  },
+
+  "pacing_1": {
+    "lines": [
+      ["pacing", "Babaylan! Pakiusap, tulungan mo ako!"],
+      ["pacing", "Ang anak kong si Pepe, pumasok sa gubat kahapon para manguha ng kabute. Hindi pa siya bumabalik!"],
+      ["pacing", "Sabi ng mga mangangaso, may kapreng nakatira sa hilagang-kanluran ng gubat..."]
+    ],
+    "choices": [
+      {"text": "Hahanapin namin siya.", "next": "pacing_yes"},
+      {"text": "Pasensya na, wala kaming oras.", "next": "pacing_no"}
+    ]
+  },
+  "pacing_yes": {
+    "do": {"set": {"quest_pepe": true}},
+    "lines": [["pacing", "Salamat! Salamat! Pagpalain kayo ng mga diwata!"]]
+  },
+  "pacing_no": {
+    "lines": [["pacing", "...Naiintindihan ko. Ang Datu muna. Siyempre."]]
+  },
+  "pacing_waiting": {
+    "lines": [["pacing", "Wala pa rin si Pepe... Pakiusap, bilisan ninyo."]]
+  },
+  "pacing_reward": {
+    "do": {"gold": 80, "item": {"agimat": 1}, "set": {"pacing_reward": true}},
+    "lines": [
+      ["pepe", "Nanay!"],
+      ["pacing", "Pepe! Anak ko! ...Salamat, babaylan. Salamat sa inyong lahat."],
+      ["pacing", "Heto, kunin ninyo ito. Kaunti lang, pero galing sa puso."]
+    ],
+    "next": "pacing_secret"
+  },
+  "pacing_secret": {
+    "do": {"clue": "putik"},
+    "lines": [
+      ["pacing", "At... may sasabihin ako. Hindi ko ito sinabi kanino man. Pari siya, at sino ba naman ako para paniwalaan?"],
+      ["pacing", "Noong gabing namatay ang Datu, hatinggabi, nasa labas ako at hinihintay si Pepe."],
+      ["pacing", "Nakita ko si Apo Banal na pauwi galing sa gubat. Putikan ang laylayan ng kanyang puting balabal. May hawak siyang bungkos ng maiitim na ugat."]
+    ]
+  },
+  "pacing_done": {
+    "lines": [["pacing", "Pagpalain kayo ng Huling Buwan. Hindi ko kayo makakalimutan."]]
+  },
+  "pepe_home": {
+    "lines": [["pepe", "Paglaki ko, magiging kabalyero ako! O babaylan! O... pareho!"]]
+  },
+
+  "taga1": {
+    "lines": [
+      ["villager_a", "Kapag namatay ang huling buwan, babalik ang Gabing Walang Hanggan. Iyan ang sabi ng lola ko."],
+      ["villager_a", "Kaya hindi dapat pinag-aawayan ang mga Mutya. Pero sino ba naman ako..."]
+    ]
+  },
+  "taga2": {
+    "lines": [
+      ["villager_b", "Tatlong daang taon na mula nang Paglaho. Tatlong digmaan na ang nakita ko sa buhay ko."],
+      ["villager_b", "Laging may dahilan. Laging may namamatay na hindi naman kasali."]
+    ]
+  }
+}

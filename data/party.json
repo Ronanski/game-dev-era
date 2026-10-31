@@ -1,0 +1,20 @@
+{
+  "amihan": {
+    "class": "Babaylan",
+    "hp": 140, "sp": 70, "atk": 8, "mag": 15, "def": 8, "spd": 12,
+    "weapons": ["tungkod"],
+    "skills": ["hangin", "liwanag", "ipuipo", "lunas", "basbas"]
+  },
+  "bagwis": {
+    "class": "Itinapong Kabalyero",
+    "hp": 190, "sp": 40, "atk": 15, "mag": 6, "def": 13, "spd": 9,
+    "weapons": ["espada", "sibat"],
+    "skills": ["tatluhan", "tusok", "apoy_panata"]
+  },
+  "tala": {
+    "class": "Magnanakaw",
+    "hp": 130, "sp": 50, "atk": 12, "mag": 11, "def": 8, "spd": 16,
+    "weapons": ["balaraw", "pana"],
+    "skills": ["kulog_palaso", "dilim", "ulan_palaso", "nakaw"]
+  }
+}
