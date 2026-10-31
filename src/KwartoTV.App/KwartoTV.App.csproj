@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>KwartoTV</AssemblyName>
+    <RootNamespace>KwartoTV.App</RootNamespace>
+    <ApplicationIcon>Assets\kwartotv.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>1.0.0</Version>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The WPF SDK drops some of the usual implicit usings (System.IO, System.Net.Http, ...), so list them. -->
+    <Using Include="System" />
+    <Using Include="System.IO" />
+    <Using Include="System.Linq" />
+    <Using Include="System.Net.Http" />
+    <Using Include="System.Threading" />
+    <Using Include="System.Threading.Tasks" />
+    <Using Include="System.Collections.Generic" />
+    <PackageReference Include="QRCoder" Version="1.6.0" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2792.45" />
+    <ProjectReference Include="..\KwartoTV.Core\KwartoTV.Core.csproj" />
+    <Resource Include="Assets\kwartotv.png" />
+    <!-- libmpv is downloaded by the build script into libs\ (see .github/workflows/build.yml and tools/get-libmpv.ps1) -->
+    <None Include="libs\libmpv-2.dll" Condition="Exists('libs\libmpv-2.dll')" CopyToOutputDirectory="PreserveNewest" Link="libmpv-2.dll" />
+  </ItemGroup>
+</Project>

@@ -2,131 +2,168 @@ name: Test and Build
 
 on:
   push:
-    branches: [main]
+    branches: [main, "ccr-*", "claude/**"]
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
-env:
-  GODOT_VERSION: "4.3"
-
 permissions:
   contents: write
 
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+
 jobs:
-  build:
+  core:
+    name: Core tests (Linux)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "8.0.x" }
+      - run: dotnet run --project tests/KwartoTV.Tests -c Release
 
+  windows:
+    name: Windows app and installer
+    needs: core
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "8.0.x" }
+
+      - name: Get libmpv (video engine)
+        shell: pwsh
+        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+        run: ./tools/get-libmpv.ps1
+
+      - name: Publish app (self-contained, so the PC needs no .NET)
+        run: dotnet publish src/KwartoTV.App -c Release -r win-x64 --self-contained true -p:Version=1.0.${{ github.run_number }} -p:DebugType=None -o publish
+
+      - name: Check libmpv is in the package
+        shell: pwsh
+        run: |
+          if (-not (Test-Path publish/libmpv-2.dll)) { throw "libmpv-2.dll missing from publish folder" }
+          Get-ChildItem publish | Measure-Object Length -Sum | ForEach-Object { "{0:N0} MB in publish" -f ($_.Sum / 1MB) }
+
+      - name: Build installer (KwartoTV.exe)
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          & $iscc "/DAppVersion=1.0.${{ github.run_number }}" installer/KwartoTV.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
+          Get-Item dist/KwartoTV.exe | Select-Object Name, Length
+
+      - name: Network check script works
+        shell: pwsh
+        run: ./tools/check-iptv.ps1
+
+      - name: Install silently, as a user would
+        shell: pwsh
+        run: |
+          $p = Start-Process dist/KwartoTV.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS','/TASKS=""','/DIR=C:\KwartoTV-test','/LOG=install.log' -Wait -PassThru
+          Get-Content install.log -Tail 25
+          if ($p.ExitCode -ne 0) { throw "Installer exit code $($p.ExitCode)" }
+          if (-not (Test-Path C:\KwartoTV-test\KwartoTV.exe)) { throw "KwartoTV.exe not installed" }
+          if (-not (Test-Path C:\KwartoTV-test\libmpv-2.dll)) { throw "libmpv-2.dll not installed" }
+          netsh advfirewall firewall show rule name="KwartoTV remote" | Select-String "Rule Name","LocalPort","Enabled","Profiles"
+          if (-not ((netsh advfirewall firewall show rule name="KwartoTV remote") -match "8765")) { throw "Firewall rule for port 8765 was not created" }
+          if (-not ((netsh advfirewall firewall show rule name="KwartoTV app" verbose) -match "KwartoTV.exe")) { throw "Firewall rule for the app was not created" }
+
+      - name: Smoke test the installed app (server, discovery, screenshots)
+        shell: pwsh
+        run: ./tools/smoke-windows.ps1 -Exe C:\KwartoTV-test\KwartoTV.exe -OutDir qa-shots
+
+      - name: In-app update (close, install silently, open again)
+        shell: pwsh
+        run: ./tools/check-update.ps1 -Exe C:\KwartoTV-test\KwartoTV.exe -Installer dist/KwartoTV.exe
+
+      - name: Uninstall cleanly
+        shell: pwsh
+        run: |
+          $u = Get-ChildItem C:\KwartoTV-test -Filter "unins*.exe" | Select-Object -First 1
+          Start-Process $u.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES' -Wait
+          Start-Sleep 3
+          if ((netsh advfirewall firewall show rule name="KwartoTV remote") -match "8765") { throw "Firewall rule left behind" }
+          Write-Host "Uninstalled; firewall rules removed"
+          exit 0   # netsh returns 1 for "no such rule", which is the expected result here
+
+      - uses: actions/upload-artifact@v4
+        with: { name: KwartoTV-installer, path: dist/KwartoTV.exe, if-no-files-found: error }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: windows-screenshots, path: qa-shots, if-no-files-found: ignore }
+
+  android:
+    name: Android remote (APK)
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: android } }
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Cache Godot
-        id: cache-godot
-        uses: actions/cache@v4
-        with:
-          path: ~/godot-cache
-          key: godot-${{ env.GODOT_VERSION }}
-
-      - name: Download Godot and export templates
-        if: steps.cache-godot.outputs.cache-hit != 'true'
+        with: { distribution: temurin, java-version: "17" }
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Accept SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+      - name: Unit tests
+        run: ./gradlew --no-daemon testDebugUnitTest
+        env: { KWARTO_VERSION_CODE: "${{ github.run_number }}" }
+      - name: Lint
+        run: ./gradlew --no-daemon lintRelease
+        env: { KWARTO_VERSION_CODE: "${{ github.run_number }}" }
+      - name: Build signed APK
+        run: ./gradlew --no-daemon assembleRelease
+        env: { KWARTO_VERSION_CODE: "${{ github.run_number }}" }
+      - name: Name the APK
         run: |
-          mkdir -p ~/godot-cache
-          cd ~/godot-cache
-          base=https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable
-          wget -q $base/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip
-          wget -q $base/Godot_v${GODOT_VERSION}-stable_export_templates.tpz
-
-      - name: Install Godot
+          mkdir -p ../dist
+          cp app/build/outputs/apk/release/app-release.apk ../dist/KwartoTV-Remote.apk
+          ls -la ../dist
+      - name: Check the APK
         run: |
-          cd ~/godot-cache
-          unzip -o -q Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip
-          sudo mv Godot_v${GODOT_VERSION}-stable_linux.x86_64 /usr/local/bin/godot
-          tpl=~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
-          mkdir -p $tpl
-          unzip -o -q Godot_v${GODOT_VERSION}-stable_export_templates.tpz -d /tmp/tpl
-          mv /tmp/tpl/templates/* $tpl/
-          godot --version
+          "$ANDROID_HOME"/build-tools/*/aapt2 dump badging ../dist/KwartoTV-Remote.apk | head -8
+          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs ../dist/KwartoTV-Remote.apk | head -3
+      - uses: actions/upload-artifact@v4
+        with: { name: KwartoTV-Remote-apk, path: dist/KwartoTV-Remote.apk, if-no-files-found: error }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: android-lint, path: android/app/build/reports/lint-results-release.html, if-no-files-found: ignore }
 
-      - name: Configure Android signing (debug key)
+  release:
+    name: Publish the latest build
+    needs: [windows, android]
+    # Only main and version tags reach the apps' in-app updater; work branches are built and tested, not shipped.
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    # Two runs replacing 'latest' at once could leave an older build published.
+    concurrency: { group: release-latest, cancel-in-progress: false }
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - name: Write the update manifest (used by the in-app updater of the TV app and the Android remote)
         run: |
-          keytool -genkeypair -v -keystore ~/debug.keystore -alias androiddebugkey \
-            -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android \
-            -dname "CN=Android Debug,O=Android,C=US"
-          mkdir -p ~/.config/godot
-          for f in editor_settings-4.tres editor_settings-${GODOT_VERSION}.tres; do
-            cat > ~/.config/godot/$f <<EOF
-          [gd_resource type="EditorSettings" format=3]
-
-          [resource]
-          export/android/android_sdk_path = "$ANDROID_SDK_ROOT"
-          export/android/java_sdk_path = "$JAVA_HOME"
-          export/android/debug_keystore = "$HOME/debug.keystore"
-          export/android/debug_keystore_user = "androiddebugkey"
-          export/android/debug_keystore_pass = "android"
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/latest"
+          exe_sha=$(sha256sum dist/KwartoTV.exe | cut -d' ' -f1)
+          apk_sha=$(sha256sum dist/KwartoTV-Remote.apk | cut -d' ' -f1)
+          cat > dist/KwartoTV-update.json <<EOF
+          {
+            "build": ${{ github.run_number }},
+            "version": "1.0.${{ github.run_number }}",
+            "exe": { "url": "$base/KwartoTV.exe", "sha256": "$exe_sha" },
+            "apk": { "url": "$base/KwartoTV-Remote.apk", "sha256": "$apk_sha", "versionCode": ${{ github.run_number }} },
+            "notes": "Built from ${GITHUB_REF_NAME} (${GITHUB_SHA::7})"
+          }
           EOF
-          done
+          cat dist/KwartoTV-update.json
 
-      - name: Import project
-        run: godot --headless --path . --import || true
-
-      - name: Validate story data
-        run: godot --headless --path . -s tests/validate_data.gd
-
-      - name: Automated playthroughs (all endings)
+      - name: Publish release "latest"
+        env: { GH_TOKEN: "${{ github.token }}" }
         run: |
-          for route in best partial war hiraya late; do
-            godot --headless --path . -s tests/playthrough.gd -- --route=$route 2>&1 \
-              | grep -v 'Parameter "m" is null\|mesh_storage.h' | tee /tmp/run.log
-            grep -q "RESULT: PASS" /tmp/run.log
-          done
-
-      - name: Export Windows
-        run: |
-          mkdir -p build/windows
-          godot --headless --path . --export-release "Windows Desktop" build/windows/AlamatNgHulingBuwan.exe
-          ls -la build/windows
-
-      - name: Export Android (APK)
-        run: |
-          mkdir -p build/android
-          godot --headless --path . --export-debug "Android" build/android/AlamatNgHulingBuwan.apk
-          ls -la build/android
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: AlamatNgHulingBuwan-Windows
-          path: build/windows
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: AlamatNgHulingBuwan-Android
-          path: build/android/*.apk
-
-      - name: Publish latest build (direct download links)
-        if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: latest
-          name: Pinakabagong Build
-          target_commitish: ${{ github.sha }}
-          make_latest: true
-          body: |
-            Awtomatikong build mula sa `main` (commit ${{ github.sha }}).
-
-            - **Android:** i-download ang `AlamatNgHulingBuwan.apk`, buksan, at i-allow ang "Install unknown apps".
-            - **Windows:** i-download ang `AlamatNgHulingBuwan.exe` at i-double-click.
-          files: |
-            build/windows/AlamatNgHulingBuwan.exe
-            build/android/AlamatNgHulingBuwan.apk
-
-      - name: Publish release (on version tags)
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            build/windows/AlamatNgHulingBuwan.exe
-            build/android/AlamatNgHulingBuwan.apk
+          ls -la dist
+          gh release delete latest --cleanup-tag --yes --repo "$GITHUB_REPOSITORY" || true
+          gh release create latest dist/KwartoTV.exe dist/KwartoTV-Remote.apk dist/KwartoTV-update.json --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --prerelease \
+            --title "KwartoTV (latest build)" \
+            --notes "Built from ${GITHUB_REF_NAME} (${GITHUB_SHA::7}). KwartoTV.exe is the Windows installer. KwartoTV-Remote.apk is the Android remote. Both update themselves from inside the apps."

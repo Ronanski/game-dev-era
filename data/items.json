@@ -1,5 +1,0 @@
-{
-  "tonik":   {"name": "Tonik", "desc": "Nagpapanumbalik ng 60 HP.", "heal": 60},
-  "lagundi": {"name": "Dahon ng Lagundi", "desc": "Nagpapanumbalik ng 25 SP.", "sp": 25},
-  "agimat":  {"name": "Agimat", "desc": "Binubuhay ang bumagsak na kasama (50% HP).", "revive": 0.5}
-}

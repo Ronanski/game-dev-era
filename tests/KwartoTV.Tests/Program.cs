@@ -1,0 +1,824 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Net.WebSockets;
+using System.Text;
+using System.Text.Json;
+using KwartoTV.Core;
+
+int pass = 0, fail = 0;
+void Check(bool ok, string name)
+{
+    if (ok) pass++; else { fail++; Console.WriteLine("FAIL: " + name); }
+}
+
+// Placeholder URLs only: this repo ships no real channel sources.
+const string Sample = "\uFEFF#EXTM3U\r\n" +
+    "#EXTINF:-1 tvg-id=\"a\" tvg-logo=\"https://example.invalid/a.png\" group-title=\"News\",Channel A\r\n" +
+    "https://example.invalid/a.m3u8\r\n" +
+    "#EXTVLCOPT:http-user-agent=x\r\n" +
+    "#EXTINF:-1 group-title=\"Kids, Fun\",Channel B, The Sequel\r\n" +
+    "https://example.invalid/b.m3u8?token=1\r\n" +
+    "#EXTINF:-1,Channel C\r\n" +
+    "https://www.youtube.com/watch?v=PLACEHOLDER\r\n" +
+    "#EXTINF:-1,Dup A\r\n" +
+    "https://example.invalid/a.m3u8\r\n" +
+    "#EXTINF:-1,Bad scheme\r\n" +
+    "javascript:alert(1)\r\n" +
+    "#EXTINF:-1,File scheme\r\n" +
+    "file:///c:/secret.mp4\r\n" +
+    "https://example.invalid/bare/stream.ts\r\n";
+
+// ---- M3U parser
+var parsed = M3uParser.Parse(Sample);
+Check(parsed.Count == 4, $"parser count (got {parsed.Count})");
+Check(parsed[0].Name == "Channel A" && parsed[0].Group == "News" && parsed[0].LogoUrl == "https://example.invalid/a.png", "parser attrs");
+Check(parsed[0].Kind == StreamKind.Hls, "kind hls");
+Check(parsed[1].Name == "Channel B, The Sequel" && parsed[1].Group == "Kids, Fun", "parser commas in names/groups");
+Check(parsed[1].Kind == StreamKind.Hls, "kind hls with query");
+Check(parsed[2].Kind == StreamKind.YouTube, "kind youtube");
+Check(parsed[3].Name == "stream.ts" && parsed[3].Group == "Other" && parsed[3].Kind == StreamKind.Direct, "bare url fallback");
+Check(parsed.All(c => c.Url.StartsWith("http")), "only http(s) accepted");
+Check(M3uParser.Parse("").Count == 0 && M3uParser.Parse("garbage\n#EXTINF").Count == 0, "empty/garbage");
+Check(M3uParser.Parse(Sample).Select(c => c.Id).SequenceEqual(parsed.Select(c => c.Id)), "stable ids");
+
+// ---- Lineup
+var lu = new ChannelLineup();
+var tuned = new List<int>();
+lu.Tuned += (_, n) => tuned.Add(n);
+lu.Load(parsed);
+Check(lu.Current is null && lu.CurrentNumber == 0, "no channel before tuning");
+Check(lu.TuneNumber(1)?.Name == "Channel A", "tune 1");
+Check(lu.Next()?.Name == "Channel B, The Sequel", "next");
+Check(lu.Last()?.Name == "Channel A", "last");
+Check(lu.Last()?.Name == "Channel B, The Sequel", "last toggles");
+Check(lu.TuneNumber(4) is not null && lu.Next()?.Name == "Channel A", "next wraps");
+Check(lu.Previous()?.Id == parsed[3].Id, "previous wraps");
+Check(lu.TuneNumber(99) is null && lu.TuneNumber(0) is null && lu.TuneNumber(-3) is null, "out of range ignored");
+Check(tuned.Count > 0, "Tuned event fires");
+
+var t0 = DateTimeOffset.UtcNow;
+Check(lu.PressDigit(2, t0) is null && lu.DigitBuffer == "2", "digit buffered");
+Check(lu.Tick(t0 + TimeSpan.FromSeconds(1)) is null, "no commit before timeout");
+Check(lu.Tick(t0 + TimeSpan.FromSeconds(2.1))?.Name == "Channel B, The Sequel" && lu.DigitBuffer == "", "commit after timeout");
+lu.PressDigit(1, t0); 
+Check(lu.PressDigit(2, t0 + TimeSpan.FromSeconds(0.5)) is null, "two digits, 12 invalid pending");
+Check(lu.PressDigit(3, t0 + TimeSpan.FromSeconds(0.9)) is null && lu.DigitBuffer == "", "3 digits auto-commit, invalid ignored");
+lu.PressDigit(3, t0); lu.PressDigit(1, t0 + TimeSpan.FromSeconds(5));
+Check(lu.DigitBuffer == "1", "stale buffer reset by timeout");
+lu.Commit();
+
+Check(lu.ToggleFavorite(parsed[2].Id) && lu.Favorites.Count == 1, "favorite on");
+Check(!lu.ToggleFavorite(parsed[2].Id) && lu.Favorites.Count == 0, "favorite off");
+Check(!lu.ToggleFavorite("nope"), "favorite unknown id");
+lu.ToggleFavorite(parsed[1].Id);
+var state = lu.Export();
+var lu2 = new ChannelLineup(); lu2.Load(parsed); lu2.Restore(state);
+Check(lu2.Favorites.Single().Id == parsed[1].Id && lu2.Current?.Id == lu.Current?.Id, "state round trip");
+Check(lu.Groups.SequenceEqual(new[] { "News", "Kids, Fun", "Other" }), "groups: known categories first (News), then alphabetical");
+
+lu.TuneNumber(2);
+lu.Load(parsed.Skip(1)); 
+Check(lu.Current?.Id == parsed[1].Id && lu.CurrentNumber == 1, "reload keeps current channel, renumbers");
+
+// ---- Pairing
+var pairing = new PairingService();
+var now = DateTimeOffset.UtcNow;
+var pin = pairing.StartPairing(now);
+Check(pin.Length == 6 && pin.All(char.IsDigit), "pin format");
+Check(pairing.Complete("000000" == pin ? "111111" : "000000", "x", now) is null, "wrong pin rejected");
+var ok = pairing.Complete(pin, "  Samsung A56  ", now);
+Check(ok is not null && ok.Value.Device.Name == "Samsung A56", "pair success");
+Check(pairing.Complete(pin, "again", now) is null, "pin single use");
+Check(pairing.Validate(ok!.Value.Device.Id, ok.Value.Token), "token validates");
+Check(!pairing.Validate(ok.Value.Device.Id, ok.Value.Token + "x") && !pairing.Validate("zz", ok.Value.Token) && !pairing.Validate(null, null), "bad creds rejected");
+Check(!pairing.Export().Contains(ok.Value.Token), "token not stored in plain text");
+
+var pin2 = pairing.StartPairing(now);
+Check(pairing.Complete(pin2, "late", now + PairingService.PinLifetime + TimeSpan.FromSeconds(1)) is null, "pin expires");
+var pin3 = pairing.StartPairing(now);
+var wrong = pin3 == "123456" ? "654321" : "123456";
+for (int i = 0; i < 5; i++) pairing.Complete(wrong, "x", now);
+Check(pairing.Complete(pin3, "x", now) is null, "pin locked after 5 failures");
+
+var p2 = pairing.StartPairing(now); var second = pairing.Complete(p2, "Tablet", now)!;
+Check(pairing.Devices.Count == 2, "two devices at once");
+pairing.SetBlocked(ok.Value.Device.Id, true);
+Check(!pairing.Validate(ok.Value.Device.Id, ok.Value.Token), "blocked device rejected");
+Check(pairing.Validate(second.Value.Device.Id, second.Value.Token), "other device unaffected by block");
+pairing.SetBlocked(ok.Value.Device.Id, false);
+Check(pairing.Validate(ok.Value.Device.Id, ok.Value.Token), "unblock");
+var reload = new PairingService(); reload.Import(pairing.Export());
+Check(reload.Validate(second.Value.Device.Id, second.Value.Token), "persisted devices validate");
+Check(pairing.Revoke(second.Value.Device.Id) && !pairing.Validate(second.Value.Device.Id, second.Value.Token), "revoke");
+
+// ---- Router
+var host = new FakeHost();
+var rl = new ChannelLineup(); rl.Load(parsed);
+var router = new CommandRouter(rl, host);
+Check(router.Handle(new(null, "channel.number", "2")).Ok && rl.CurrentNumber == 2, "router channel.number");
+Check(router.Handle(new(null, "channel.next", null)).Ok && rl.CurrentNumber == 3, "router channel.next");
+Check(!router.Handle(new(null, "channel.number", "abc")).Ok, "router bad number");
+Check(!router.Handle(new(null, "channel.number", "50")).Ok, "router missing channel");
+Check(router.Handle(new(null, "channel.favorite", null)).Ok && rl.Favorites.Count == 1, "router favorite");
+Check(router.Handle(new(null, "media.volume", "40")).Ok && host.Last == "media.volume:40", "router volume");
+Check(!router.Handle(new(null, "media.volume", "400")).Ok && !router.Handle(new(null, "media.volume", null)).Ok, "router volume bounds");
+Check(!router.Handle(new(null, "media.seek", "99999")).Ok, "router seek bounds");
+Check(router.Handle(new(null, "media.speed", "1.5")).Ok && !router.Handle(new(null, "media.speed", "9")).Ok, "router speed bounds");
+Check(!router.Handle(new(null, "format.disk", "c:")).Ok && !router.Handle(new(null, "", null)).Ok, "router rejects unknown");
+Check(!router.Handle(new(null, new string('x', 100), null)).Ok && !router.Handle(new(null, "nav.up", new string('1', 100))).Ok, "router length caps");
+host.Throw = true;
+Check(!router.Handle(new(null, "nav.up", null)).Ok, "router survives host exception");
+host.Throw = false;
+
+// ---- Server (loopback)
+int port = 18700 + Random.Shared.Next(200);
+var sp = new PairingService(); var sl = new ChannelLineup(); sl.Load(parsed);
+var sh = new FakeHost();
+await using (var server = new RemoteServer($"http://127.0.0.1:{port}/", sp, new CommandRouter(sl, sh), sl))
+{
+    server.Start();
+    using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}/") };
+
+    var bad = await http.PostAsJsonAsync("pair", new { pin = "000000", name = "x" });
+    Check(bad.StatusCode == HttpStatusCode.Forbidden, "server pair w/o pin = 403");
+
+    var spin = sp.StartPairing(DateTimeOffset.UtcNow);
+    var good = await http.PostAsJsonAsync("pair", new { pin = spin, name = "Phone" });
+    Check(good.IsSuccessStatusCode, "server pair ok");
+    var creds = await good.Content.ReadFromJsonAsync<JsonElement>();
+    var dev = creds.GetProperty("deviceId").GetString()!; var tok = creds.GetProperty("token").GetString()!;
+
+    var junk = await http.PostAsync("pair", new StringContent("not json", Encoding.UTF8, "application/json"));
+    Check(junk.StatusCode == HttpStatusCode.Forbidden, "server junk body = 403");
+    Check((await http.GetAsync("nothing")).StatusCode == HttpStatusCode.NotFound, "server 404");
+
+    using (var badWs = new ClientWebSocket())
+    {
+        bool refused = false;
+        try { await badWs.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/ws?device={dev}&token=wrong"), CancellationToken.None); }
+        catch { refused = true; }
+        Check(refused, "ws bad token refused");
+    }
+
+    using var ws = new ClientWebSocket();
+    await ws.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/ws?device={dev}&token={tok}"), CancellationToken.None);
+    var first = JsonDocument.Parse(await Recv(ws));
+    Check(first.RootElement.GetProperty("type").GetString() == "state", "ws initial state");
+
+    await SendJson(ws, new { id = "1", cmd = "channel.next" });
+    var m1 = JsonDocument.Parse(await Recv(ws)); var m2 = JsonDocument.Parse(await Recv(ws));
+    var types = new[] { m1, m2 }.Select(d => d.RootElement.GetProperty("type").GetString()).OrderBy(x => x).ToArray();
+    Check(types.SequenceEqual(new[] { "ack", "state" }), "ws ack + state broadcast");
+
+    await SendJson(ws, new { id = "2", cmd = "media.volume", arg = "55" });
+    var ack = JsonDocument.Parse(await Recv(ws));
+    Check(ack.RootElement.GetProperty("ok").GetBoolean() && sh.Last == "media.volume:55", "ws host command executed");
+
+    await SendJson(ws, new { id = "3", cmd = "power.nuke" });
+    var rej = JsonDocument.Parse(await Recv(ws));
+    Check(!rej.RootElement.GetProperty("ok").GetBoolean(), "ws unknown command rejected");
+
+    sp.Revoke(dev);
+    await SendJson(ws, new { id = "4", cmd = "nav.up" });
+    bool closed = false;
+    try { var buf = new byte[1024]; var r = await ws.ReceiveAsync(buf, new CancellationTokenSource(3000).Token); closed = r.MessageType == WebSocketMessageType.Close; }
+    catch { closed = true; }
+    Check(closed, "ws closed after revoke");
+}
+
+// ---- App launch plans (command construction only; actual launch must be verified on Windows)
+var edge = @"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe";
+var yt = AppLaunchPlans.YouTube(@"C:\KwartoTV\yt-profile", f => f == edge);
+Check(yt is not null && yt.FileName == edge, "youtube uses installed browser");
+Check(yt!.Args.Contains("--app=https://www.youtube.com/tv") && yt.Args.Contains("--start-fullscreen"), "youtube tv fullscreen app window");
+Check(yt.Args.Any(a => a.StartsWith("--user-data-dir=") && a.Contains("yt-profile")), "youtube own profile");
+Check(AppLaunchPlans.YouTube(@"C:\p", _ => false) is null, "youtube null when no browser");
+var chrome = @"C:\Program Files\Google\Chrome\Application\chrome.exe";
+Check(AppLaunchPlans.YouTube(@"C:\p", f => f == chrome)?.FileName == chrome, "falls back to chrome");
+Check(AppLaunchPlans.Web("http://insecure.example/", @"C:\p", _ => true) is null, "web tile rejects http");
+Check(AppLaunchPlans.Web("javascript:alert(1)", @"C:\p", _ => true) is null && AppLaunchPlans.Web("not a url", @"C:\p", _ => true) is null, "web tile rejects bad urls");
+Check(AppLaunchPlans.Web("https://example.com/watch", @"C:\p", _ => true)!.Args[0] == "--app=https://example.com/watch", "web tile https ok");
+var nf = AppLaunchPlans.Netflix();
+Check(nf.FileName == "explorer.exe" && nf.Args.Single().StartsWith(@"shell:AppsFolder\"), "netflix store launch");
+
+// ---- Playlist loader (local test server only)
+Check(!PlaylistLoader.IsAllowedSource(new Uri("http://example.com/a.m3u")), "loader rejects remote http");
+Check(PlaylistLoader.IsAllowedSource(new Uri("https://example.com/a.m3u")) && PlaylistLoader.IsAllowedSource(new Uri("http://127.0.0.1:1/a.m3u")), "loader allows https and loopback");
+int lport = 18900 + Random.Shared.Next(100);
+using (var ls = new HttpListener())
+{
+    ls.Prefixes.Add($"http://127.0.0.1:{lport}/");
+    ls.Start();
+    _ = Task.Run(async () =>
+    {
+        while (ls.IsListening)
+        {
+            HttpListenerContext c;
+            try { c = await ls.GetContextAsync(); } catch { break; }
+            if (c.Request.Url!.AbsolutePath == "/ok.m3u")
+            {
+                var bytes = Encoding.UTF8.GetBytes(Sample);
+                await c.Response.OutputStream.WriteAsync(bytes);
+            }
+            else c.Response.StatusCode = 404;
+            c.Response.Close();
+        }
+    });
+    using var lh = new HttpClient();
+    var loaded = await PlaylistLoader.LoadAsync($"http://127.0.0.1:{lport}/ok.m3u", lh);
+    Check(loaded.Count == 4 && loaded[0].Name == "Channel A", "loader downloads and parses");
+    bool failed404 = false;
+    try { await PlaylistLoader.LoadAsync($"http://127.0.0.1:{lport}/missing.m3u", lh); } catch (HttpRequestException) { failed404 = true; }
+    Check(failed404, "loader surfaces 404");
+    bool badUrl = false;
+    try { await PlaylistLoader.LoadAsync("file:///c:/x.m3u", lh); } catch (ArgumentException) { badUrl = true; }
+    Check(badUrl, "loader rejects file urls");
+    ls.Stop();
+}
+
+// ---- Settings, catalog, library, pairing link, Netflix lookup, mDNS, web remote
+{
+    var st = new AppSettings();
+    Check(st.AddPlaylist("Mine", "https://example.invalid/a.m3u") is null, "settings add https playlist");
+    Check(st.AddPlaylist("Mine", "https://example.invalid/a.m3u") is not null, "settings rejects duplicate playlist");
+    Check(st.AddPlaylist("x", "http://example.com/a.m3u") is not null, "settings rejects remote http playlist");
+    Check(st.AddPlaylist("x", "javascript:alert(1)") is not null && st.AddPlaylist("x", "relative/path.m3u") is not null, "settings rejects junk playlist");
+    Check(st.AddPlaylist("Local", @"C:\tv\list.m3u8") is null || OperatingSystem.IsWindows() == false, "settings accepts rooted m3u path (windows form)");
+    Check(st.AddWebTile("Site", "https://example.com/watch") is null && st.AddWebTile("Site", "http://example.com") is not null, "settings web tile https only");
+    Check(st.AddWebTile("", "https://news.example.org/") is null && st.WebTiles.Last().Name == "news.example.org", "settings web tile default name");
+    var sfile = Path.Combine(Path.GetTempPath(), "kw-" + Guid.NewGuid().ToString("N") + ".json");
+    JsonFile.Save(sfile, st);
+    var back = JsonFile.LoadOrNew<AppSettings>(sfile);
+    Check(back.Playlists.Count == st.Playlists.Count && back.WebTiles.Count == 2 && back.Port == 8765, "settings json round trip");
+    File.WriteAllText(sfile, "{ not json");
+    Check(JsonFile.LoadOrNew<AppSettings>(sfile).Playlists.Count == 0, "settings corrupt file falls back to empty");
+    File.Delete(sfile);
+    Check(st.RemovePlaylist(st.Playlists[0].Id) && st.RemoveWebTile(st.WebTiles[0].Id), "settings remove");
+
+    var dir = Path.Combine(Path.GetTempPath(), "kwlib-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(Path.Combine(dir, "sub"));
+    File.WriteAllText(Path.Combine(dir, "b.mp4"), "x"); File.WriteAllText(Path.Combine(dir, "sub", "a.mkv"), "x");
+    File.WriteAllText(Path.Combine(dir, "notes.txt"), "x");
+    File.WriteAllText(Path.Combine(dir, "list.m3u"), Sample);
+    var lib = LibraryScanner.Scan(new[] { dir, Path.Combine(dir, "missing") });
+    Check(lib.Count == 2 && lib[0].Title == "a" && lib.All(i => i.Path.EndsWith(".mp4") || i.Path.EndsWith(".mkv")), "library finds media only, recursively");
+    Check(ChannelCatalog.LoadFile(Path.Combine(dir, "list.m3u")).Count == 4, "catalog loads local m3u");
+    var gone = new PlaylistEntry("2", "Gone", Path.Combine(dir, "nope.m3u"));
+    bool goneFailed = false; try { await ChannelCatalog.LoadOneAsync(gone, new HttpClient()); } catch (FileNotFoundException) { goneFailed = true; }
+    var localLoaded = await ChannelCatalog.LoadOneAsync(new PlaylistEntry("1", "Local", Path.Combine(dir, "list.m3u")), new HttpClient());
+    Check(localLoaded.Count == 4 && goneFailed, "catalog loads a local playlist and reports a missing one");
+    Directory.Delete(dir, true);
+
+    var link = PairLink.Build("192.168.1.20", 8765, "012345");
+    Check(PairLink.TryParse(link, out var lh, out var lp, out var lpin) && lh == "192.168.1.20" && lp == 8765 && lpin == "012345", "pair link round trip");
+    Check(!PairLink.TryParse("kwartotv://pair?host=a&port=1&pin=12", out _, out _, out _) && !PairLink.TryParse("https://evil/pair?host=a&port=1&pin=123456", out _, out _, out _)
+          && !PairLink.TryParse("kwartotv://pair?host=a&port=99999&pin=123456", out _, out _, out _) && !PairLink.TryParse(null, out _, out _, out _), "pair link rejects bad input");
+
+    const string one = "{\"Name\":\"Netflix\",\"AppID\":\"4DF9E0F8.Netflix_mcm4njqhnhss8!Netflix.App\"}";
+    Check(NetflixLocator.Find(one) == "4DF9E0F8.Netflix_mcm4njqhnhss8!Netflix.App", "netflix locator single object");
+    Check(NetflixLocator.Find("[{\"Name\":\"Other\",\"AppID\":\"x!y\"},{\"Name\":\"Netflix\",\"AppID\":\"Z.Netflix!App\"}]") == "Z.Netflix!App", "netflix locator array");
+    Check(NetflixLocator.Find("") is null && NetflixLocator.Find("garbage") is null && NetflixLocator.Find("{\"Name\":\"Netflix\",\"AppID\":\"a b&calc\"}") is null, "netflix locator rejects junk and unsafe ids");
+    Check(AppLaunchPlans.Netflix("Z.Netflix!App").Args.Single() == @"shell:AppsFolder\Z.Netflix!App", "netflix launch uses discovered id");
+
+    // router: new commands
+    var rh = new FakeHost(); var rlu = new ChannelLineup(); rlu.Load(parsed);
+    var rr = new CommandRouter(rlu, rh);
+    Check(rr.Handle(new(null, "key.text", "hello é")).Ok && rh.Last == "key.text:hello é", "router key.text");
+    Check(!rr.Handle(new(null, "key.text", "a\nb")).Ok && !rr.Handle(new(null, "key.text", "")).Ok && !rr.Handle(new(null, "key.text", null)).Ok, "router key.text rejects control chars and empty");
+    Check(rr.Handle(new(null, "media.volup", null)).Ok && rr.Handle(new(null, "app.youtube", null)).Ok && rr.Handle(new(null, "key.backspace", null)).Ok, "router volume, app and key commands");
+    rlu.PressDigit(2, DateTimeOffset.UtcNow);
+    Check(rr.Handle(new(null, "channel.commit", null)).Ok && rlu.CurrentNumber == 2, "router channel.commit tunes typed number");
+
+    // mDNS
+    var addrs = new[] { IPAddress.Parse("192.168.1.20") };
+    var resp = MdnsPacket.BuildResponse("Living Room", "kwarto-pc", addrs, 8765);
+    var recs = MdnsPacket.ParseRecords(resp);
+    Check(recs.Any(r => r.Type == 12 && r.Name == "_kwartotv._tcp.local"), "mdns has PTR");
+    var srv = recs.First(r => r.Type == 33);
+    Check(srv.Name == "Living Room._kwartotv._tcp.local" && (srv.Data[4] << 8 | srv.Data[5]) == 8765, "mdns SRV carries name and port");
+    Check(recs.Any(r => r.Type == 1 && r.Name == "kwarto-pc.local" && r.Data.SequenceEqual(new byte[] { 192, 168, 1, 20 })), "mdns has A record");
+    Check(recs.Any(r => r.Type == 16), "mdns has TXT");
+    var query = new byte[] { 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0 }.Concat(new byte[] { 9 }).Concat(Encoding.ASCII.GetBytes("_kwartotv")).Concat(new byte[] { 4 }).Concat(Encoding.ASCII.GetBytes("_tcp"))
+        .Concat(new byte[] { 5 }).Concat(Encoding.ASCII.GetBytes("local")).Concat(new byte[] { 0, 0, 12, 0, 1 }).ToArray();
+    Check(MdnsPacket.ParseQuestions(query).SequenceEqual(new[] { "_kwartotv._tcp.local" }), "mdns parses question");
+    using (var md = new MdnsResponder("Living Room", "kwarto-pc", 8765, () => addrs))
+    {
+        Check(md.Respond(query) is { } rb && MdnsPacket.ParseRecords(rb).Any(r => r.Type == 33), "mdns responds to our service query");
+        var other = (byte[])query.Clone(); other[13] = (byte)'x';
+        Check(md.Respond(other) is null, "mdns ignores other services");
+        Check(md.Respond(resp) is null && md.Respond(new byte[] { 1, 2, 3 }) is null, "mdns ignores responses and garbage");
+    }
+    Check(MdnsPacket.SanitizeLabel("a.b\u0007c", "x") == "abc" && MdnsPacket.SanitizeLabel("  ", "fallback") == "fallback" && Encoding.UTF8.GetByteCount(MdnsPacket.SanitizeLabel(new string('é', 100), "x")) <= 60, "mdns label sanitising");
+
+    // web remote page + /info + revoke drops socket
+    int wport = 19100 + Random.Shared.Next(200);
+    var wp = new PairingService(); var wl = new ChannelLineup(); wl.Load(parsed);
+    await using (var ws2 = new RemoteServer($"http://127.0.0.1:{wport}/", wp, new CommandRouter(wl, new FakeHost()), wl) { ServerName = "Test TV" })
+    {
+        ws2.Start();
+        using var hc = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{wport}/") };
+        var page = await hc.GetAsync("/");
+        var html = await page.Content.ReadAsStringAsync();
+        Check(page.IsSuccessStatusCode && html.Contains("KwartoTV") && html.Contains("/pair") && page.Content.Headers.ContentType?.MediaType == "text/html", "server serves web remote page");
+        Check(page.Headers.Contains("Content-Security-Policy"), "web remote has CSP");
+        Check((await hc.GetStringAsync("/info")).Contains("Test TV"), "server /info");
+        var pinW = wp.StartPairing(DateTimeOffset.UtcNow);
+        var pr = await hc.PostAsJsonAsync("/pair", new { pin = pinW, name = "Phone" });
+        var cred = await pr.Content.ReadFromJsonAsync<JsonElement>();
+        using var cws = new ClientWebSocket();
+        await cws.ConnectAsync(new Uri($"ws://127.0.0.1:{wport}/ws?device={cred.GetProperty("deviceId").GetString()}&token={cred.GetProperty("token").GetString()}"), CancellationToken.None);
+        await Recv(cws);
+        wp.SetBlocked(cred.GetProperty("deviceId").GetString()!, true);
+        using var cts2 = new CancellationTokenSource(5000);
+        var closeBuf = new byte[256]; WebSocketReceiveResult? cr = null;
+        try { cr = await cws.ReceiveAsync(closeBuf, cts2.Token); } catch { }
+        Check(cr?.MessageType == WebSocketMessageType.Close || cws.State is WebSocketState.CloseReceived or WebSocketState.Aborted, "blocking a device disconnects it immediately");
+    }
+    bool changed = false; var cp = new PairingService(); cp.Changed += () => changed = true;
+    cp.Complete(cp.StartPairing(DateTimeOffset.UtcNow), "x", DateTimeOffset.UtcNow);
+    Check(changed, "pairing raises Changed");
+}
+
+// ---- Host key map
+Check(HostKeyMap.Navigation("nav.back", ForegroundKind.YouTube)![0].Vk == HostKeyMap.VkEscape && HostKeyMap.Navigation("nav.back", ForegroundKind.KwartoTV)![0].Vk == HostKeyMap.VkEscape, "back is Esc in YouTube and in the app");
+Check(HostKeyMap.Navigation("nav.back", ForegroundKind.Netflix)![0] is { Vk: HostKeyMap.VkEscape, Alt: false } && HostKeyMap.Navigation("nav.back", ForegroundKind.Web)![0] is { Vk: HostKeyMap.VkEscape, Alt: false }, "back is Esc in Netflix and websites (TV navigation)");
+Check(HostKeyMap.Navigation("nav.up", ForegroundKind.KwartoTV)![0] is { Vk: HostKeyMap.VkUp, Extended: true } && HostKeyMap.Navigation("nav.ok", ForegroundKind.KwartoTV)![0].Vk == HostKeyMap.VkReturn, "arrows are extended keys");
+Check(HostKeyMap.Navigation("media.mute", ForegroundKind.KwartoTV) is null && HostKeyMap.Media("media.mute")![0].Vk == HostKeyMap.VkVolumeMute && HostKeyMap.Media("media.next")![0].Vk == HostKeyMap.VkMediaNext, "media key mapping");
+Check(HostKeyMap.Seek(-30).Count == 3 && HostKeyMap.Seek(-30)[0].Vk == HostKeyMap.VkLeft && HostKeyMap.Seek(5).Count == 1 && HostKeyMap.Seek(3600).Count == 30, "seek presses");
+var vt = HostKeyMap.VolumeTo(40);
+Check(vt.Count(k => k.Vk == HostKeyMap.VkVolumeDown) == 50 && vt.Count(k => k.Vk == HostKeyMap.VkVolumeUp) == 20 && HostKeyMap.VolumeTo(500).Count(k => k.Vk == HostKeyMap.VkVolumeUp) == 50, "volume to target");
+
+// ---- LAN address picking (virtual adapters last)
+{
+    var vm = new LanAddressPicker.Candidate("VMware Network Adapter VMnet1", "VMware Virtual Ethernet Adapter", IPAddress.Parse("192.168.164.1"), false);
+    var wifi = new LanAddressPicker.Candidate("Wi-Fi", "Intel(R) Wi-Fi 6 AX201", IPAddress.Parse("192.168.1.45"), true);
+    var wsl = new LanAddressPicker.Candidate("vEthernet (WSL)", "Hyper-V Virtual Ethernet Adapter", IPAddress.Parse("172.29.64.1"), false);
+    var apipa = new LanAddressPicker.Candidate("Ethernet", "Realtek", IPAddress.Parse("169.254.3.4"), false);
+    var ranked = LanAddressPicker.Rank(new[] { vm, wsl, apipa, wifi });
+    Check(ranked[0].ToString() == "192.168.1.45" && ranked.Count == 3 && ranked.Last().ToString() != "169.254.3.4", "real Wi-Fi address is listed before VMware/WSL, link-local dropped");
+    Check(LanAddressPicker.Rank(new[] { vm }).Count == 1, "a PC with only a virtual adapter still gets an address");
+}
+
+// ---- TCP server: prefix parsing, chunked bodies, listening on all cards like the real app
+{
+    Check(RemoteServer.ParsePrefix("http://+:8765/").Equals((IPAddress.Any, 8765)) && RemoteServer.ParsePrefix("http://127.0.0.1:9/").Equals((IPAddress.Loopback, 9)), "server prefix parsing");
+    bool badPrefix = false; try { RemoteServer.ParsePrefix("http://+/"); } catch (ArgumentException) { badPrefix = true; }
+    Check(badPrefix, "server prefix needs a port");
+    Check(RemoteServer.DecodeChunked(Encoding.ASCII.GetBytes("4\r\nWiki\r\n5\r\npedia\r\n0\r\n\r\n"), out var cb) == 1 && Encoding.ASCII.GetString(cb) == "Wikipedia", "chunked body decodes");
+    Check(RemoteServer.DecodeChunked(Encoding.ASCII.GetBytes("4\r\nWi"), out _) == 0 && RemoteServer.DecodeChunked(Encoding.ASCII.GetBytes("zz\r\n"), out _) == -1, "chunked body: partial waits, garbage rejected");
+    Check(RemoteServer.DecodeChunked(Encoding.ASCII.GetBytes("FFFF\r\n"), out _) == -1, "chunked body size cap");
+
+    int aport = 19400 + Random.Shared.Next(200);
+    var ap = new PairingService(); var al = new ChannelLineup(); al.Load(parsed);
+    await using (var anyServer = new RemoteServer($"http://+:{aport}/", ap, new CommandRouter(al, new FakeHost()), al))
+    {
+        anyServer.Start();
+        using var hc = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{aport}/") };
+        Check((await hc.GetStringAsync("/info")).Contains("KwartoTV"), "server on all cards answers (no URL reservation needed)");
+        var lan = MdnsResponder.LocalAddresses().FirstOrDefault();
+        if (lan is not null)
+        {
+            using var lc = new HttpClient { BaseAddress = new Uri($"http://{lan}:{aport}/"), Timeout = TimeSpan.FromSeconds(5) };
+            Check((await lc.GetStringAsync("/info")).Contains("KwartoTV"), $"server answers on the LAN address {lan}");
+        }
+        var pinA = ap.StartPairing(DateTimeOffset.UtcNow);
+        var body = new StringContent($"{{\"pin\":\"{pinA}\",\"name\":\"Fixed length\"}}", Encoding.UTF8, "application/json");
+        var resp = await hc.PostAsync("/pair", body);
+        Check(resp.IsSuccessStatusCode, "pairing with a Content-Length body (like the Android app)");
+        var big = await hc.PostAsync("/pair", new StringContent(new string('x', 5000), Encoding.UTF8, "application/json"));
+        Check((int)big.StatusCode == 413, "oversized pairing body refused");
+        Check((int)(await hc.GetAsync("/nope")).StatusCode == 404, "unknown path 404");
+        using var raw = new System.Net.Sockets.TcpClient();
+        await raw.ConnectAsync(IPAddress.Loopback, aport);
+        await raw.GetStream().WriteAsync("garbage\r\n\r\n"u8.ToArray());
+        var rb = new byte[64]; int rn = await raw.GetStream().ReadAsync(rb);
+        Check(Encoding.ASCII.GetString(rb, 0, rn).StartsWith("HTTP/1.1 400"), "garbage request gets 400");
+        // the port is now taken: a second server must fail loudly, not silently
+        bool taken = false;
+        await using (var secondServer = new RemoteServer($"http://+:{aport}/", ap, new CommandRouter(al, new FakeHost()), al))
+        { try { secondServer.Start(); } catch (System.Net.Sockets.SocketException) { taken = true; } }
+        Check(taken || !OperatingSystem.IsWindows(), "port already in use is reported");
+    }
+}
+
+Check(RemoteServer.PortsToTry(18765).SequenceEqual(new[] { 18765, 8765, 8766, 8767, 8768, 8769, 28765, 38765, 48765, 58765 }) && RemoteServer.PortsToTry(8765).First() == 8765 && RemoteServer.PortsToTry(8765).Distinct().Count() == RemoteServer.PortsToTry(8765).Count, "port fallback order: last used first, no duplicates");
+
+// ---- iptv-org links, #EXTVLCOPT headers, mouse commands, defaults
+{
+    Check(IptvOrg.CountryUrl("PH") == "https://iptv-org.github.io/iptv/countries/ph.m3u" && IptvOrg.CategoryUrl("News") == "https://iptv-org.github.io/iptv/categories/news.m3u", "iptv-org playlist links");
+    Check(IptvOrg.BuiltInCountries.Any(c => c.Code == "PH" && c.Name == "Philippines") && IptvOrg.Categories.Contains("news") && IptvOrg.Categories.Contains("kids"), "iptv-org built-in country and category names");
+    var cs = IptvOrg.ParseCountries("[{\"name\":\"Philippines\",\"code\":\"PH\",\"flag\":\"x\"},{\"name\":\"Bad\"},{\"code\":\"US\",\"name\":\"United States\"}]");
+    Check(cs.Count == 2 && cs[0].Code == "PH", "iptv-org countries.json parses and skips bad rows");
+    Check(IptvOrg.ParseCountries("not json").Count == 0 && IptvOrg.ParseCountries("{}").Count == 0, "iptv-org countries.json garbage gives empty list");
+    var sug = IptvOrg.CountrySuggestions(IptvOrg.BuiltInCountries);
+    Check(sug.All(s => AppSettings.IsHttpsUrl(s.Url)) && sug.First().Name.StartsWith("A"), "iptv-org suggestions are https and sorted");
+    Check(IptvOrg.Filter(sug, "phil").Single().Name == "Philippines" && IptvOrg.Filter(sug, "").Count == sug.Count, "iptv-org filter by typed text");
+
+    const string withOpts = "#EXTM3U\n#EXTINF:-1 group-title=\"News\",Needs Headers\n#EXTVLCOPT:http-referrer=https://example.invalid/\n#EXTVLCOPT:http-user-agent=Custom UA/1.0\nhttps://example.invalid/h.m3u8\n#EXTINF:-1,Plain\nhttps://example.invalid/p.m3u8\n";
+    var wo = M3uParser.Parse(withOpts);
+    Check(wo[0].Referrer == "https://example.invalid/" && wo[0].UserAgent == "Custom UA/1.0", "EXTVLCOPT referrer and user agent are kept");
+    Check(wo[1].Referrer is null && wo[1].UserAgent is null, "EXTVLCOPT options do not leak into the next channel");
+
+    var mh = new FakeHost(); var mr = new CommandRouter(new ChannelLineup(), mh);
+    Check(mr.Handle(new(null, "mouse.move", "12,-30")).Ok && mh.Last == "mouse.move:12,-30" && mr.Handle(new(null, "mouse.click", null)).Ok && mr.Handle(new(null, "mouse.scroll", "-3")).Ok, "router mouse commands");
+    Check(!mr.Handle(new(null, "mouse.move", "9999,0")).Ok && !mr.Handle(new(null, "mouse.move", "abc")).Ok && !mr.Handle(new(null, "mouse.scroll", "0")).Ok && !mr.Handle(new(null, "mouse.scroll", "99")).Ok, "router mouse bounds");
+    var defaults = new AppSettings();
+    Check(defaults.NetflixInApp, "defaults: Netflix opens in the app");
+}
+
+// ---- updates
+{
+    var h = new string('a', 64);
+    string Manifest(string exeUrl = "https://github.com/Ronanski/game-dev-era/releases/download/latest/KwartoTV.exe", string sha = null!) =>
+        "{\"build\":42,\"version\":\"1.0.42\",\"exe\":{\"url\":\"" + exeUrl + "\",\"sha256\":\"" + (sha ?? h) + "\"},\"apk\":{\"url\":\"https://github.com/Ronanski/game-dev-era/releases/download/latest/KwartoTV-Remote.apk\",\"sha256\":\"" + h + "\",\"versionCode\":42},\"notes\":\"x\"}";
+    var ui = Updates.Parse(Manifest());
+    Check(ui is { Build: 42, Version: "1.0.42" } && ui.Apk.VersionCode == 42 && ui.Exe.Sha256 == h, "update manifest parses");
+    Check(Updates.IsNewer(ui!, 41) && !Updates.IsNewer(ui!, 42) && !Updates.IsNewer(ui!, 100), "update is newer only when the build number is higher");
+    Check(Updates.Parse(Manifest(exeUrl: "https://evil.example/KwartoTV.exe")) is null, "update manifest refuses other hosts");
+    Check(Updates.Parse(Manifest(exeUrl: "http://github.com/Ronanski/game-dev-era/releases/download/latest/KwartoTV.exe")) is null, "update manifest refuses http");
+    Check(Updates.Parse(Manifest(exeUrl: "https://github.com/Ronanski/game-dev-era/releases/download/../../../evil/x/releases/download/v/a.exe")) is null, "update manifest refuses ../ out of this project");
+    Check(Updates.Parse(Manifest(sha: "zz")) is null && Updates.Parse("{}") is null && Updates.Parse("junk") is null && Updates.Parse(null) is null, "update manifest refuses bad checksum and garbage");
+
+    // download + checksum against a local server (the host check is bypassed by testing the checksum logic on a loopback file)
+    var dir = Path.Combine(Path.GetTempPath(), "kwupd-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(dir);
+    var f = Path.Combine(dir, "a.bin"); File.WriteAllBytes(f, new byte[] { 1, 2, 3, 4 });
+    Check(Updates.Sha256Of(f) == System.Security.Cryptography.SHA256.HashData(new byte[] { 1, 2, 3, 4 }).Aggregate("", (s, b) => s + b.ToString("x2")), "sha256 of a file");
+    bool refused = false;
+    try { await Updates.DownloadAsync(new UpdateFile("http://127.0.0.1:1/x", h), Path.Combine(dir, "x"), new HttpClient()); } catch (InvalidOperationException) { refused = true; }
+    Check(refused, "download refuses addresses outside the project releases");
+    Directory.Delete(dir, true);
+}
+
+// ---- resilient download: mirrors, timeouts, readable errors
+{
+    int mport = 19700 + Random.Shared.Next(200);
+    using var ml = new HttpListener();
+    ml.Prefixes.Add($"http://127.0.0.1:{mport}/");
+    ml.Start();
+    _ = Task.Run(async () =>
+    {
+        while (ml.IsListening)
+        {
+            HttpListenerContext c;
+            try { c = await ml.GetContextAsync(); } catch { break; }
+            _ = Task.Run(async () =>
+            {
+                var path = c.Request.Url!.AbsolutePath;
+                if (path == "/slow.m3u") { await Task.Delay(5000); try { c.Response.Close(); } catch { } return; }
+                if (path == "/mirror.m3u") { var b = Encoding.UTF8.GetBytes(Sample); await c.Response.OutputStream.WriteAsync(b); }
+                else if (path == "/empty.m3u") { }
+                else c.Response.StatusCode = 503;
+                c.Response.Close();
+            });
+        }
+    });
+    using var rh = ResilientHttp.Create(TimeSpan.FromSeconds(30));
+    string Main(string p) => $"http://127.0.0.1:{mport}{p}";
+
+    var viaMirror = await PlaylistLoader.LoadAsync(Main("/slow.m3u"), rh, _ => new[] { Main("/slow.m3u"), Main("/down.m3u"), Main("/mirror.m3u") }, TimeSpan.FromMilliseconds(700));
+    Check(viaMirror.Count == 4, "download falls back to the next address when the first one hangs or fails");
+
+    string err = "";
+    try { await PlaylistLoader.LoadAsync(Main("/slow.m3u"), rh, _ => new[] { Main("/slow.m3u"), Main("/down.m3u"), Main("/empty.m3u") }, TimeSpan.FromMilliseconds(500)); } catch (HttpRequestException ex) { err = ex.Message; }
+    Check(err.Contains("no answer in") && err.Contains("server said 503") && err.Contains("the list is empty") && err.Contains("127.0.0.1"), "download error says what happened at every address: " + err);
+
+    var direct = await PlaylistLoader.LoadAsync(Main("/mirror.m3u"), rh);
+    Check(direct.Count == 4, "download works straight away from the main address");
+
+    var mirrors = IptvOrg.Mirrors(IptvOrg.CountryUrl("PH"));
+    Check(mirrors[0] == IptvOrg.CountryUrl("PH") && mirrors.Count >= 3 && mirrors.Skip(1).All(m => m.StartsWith("https://") && m.EndsWith("countries/ph.m3u")), "iptv-org playlists have https mirrors");
+    Check(IptvOrg.Mirrors("https://example.com/a.m3u").Count == 1, "other playlists have no mirrors");
+    ml.Stop();
+}
+
+// ---- the user chooses channels: selection, single streams, relative links, other schemes
+{
+    var all = M3uParser.Parse(Sample);
+    var pl = new PlaylistEntry("p1", "One", "https://example.invalid/one.m3u", new List<string> { all[1].Id, all[3].Id });
+    var pl2 = new PlaylistEntry("p2", "Two", "https://example.invalid/two.m3u", null);   // null = every channel
+    var loaded = new Dictionary<string, IReadOnlyList<Channel>> { ["p1"] = all, ["p2"] = all.Take(2).ToList() };
+    var lineupList = ChannelCatalog.BuildLineup(new[] { pl, pl2 }, loaded);
+    Check(lineupList.Count == 3 && lineupList[0].Id == all[1].Id && lineupList[1].Id == all[3].Id && lineupList[2].Id == all[0].Id, "lineup has only the selected channels, then all of a playlist with no selection, no duplicates");
+    Check(ChannelCatalog.BuildLineup(new[] { pl with { Selected = new List<string>() } }, loaded).Count == 0, "an empty selection gives no channels (the user has not chosen yet)");
+    Check(ChannelCatalog.BuildLineup(new[] { pl }, new Dictionary<string, IReadOnlyList<Channel>>()).Count == 0, "playlist that is not loaded yet adds nothing");
+
+    var st = new AppSettings();
+    Check(st.AddPlaylist("L", "https://example.invalid/l.m3u") is null && st.Playlists[0].Selected is { Count: 0 }, "a new playlist starts with nothing selected");
+    st.SetSelection(st.Playlists[0].Id, new[] { "a", "b", "a" });
+    Check(st.Playlists[0].Selected!.SequenceEqual(new[] { "a", "b" }), "selection is saved without duplicates");
+    var sj = Path.Combine(Path.GetTempPath(), "kwsel-" + Guid.NewGuid().ToString("N") + ".json");
+    JsonFile.Save(sj, st);
+    Check(JsonFile.LoadOrNew<AppSettings>(sj).Playlists[0].Selected!.SequenceEqual(new[] { "a", "b" }), "selection survives saving and loading"); File.Delete(sj);
+    Check(st.AddStream("News", "https://example.invalid/live/stream.m3u8") is null && st.Playlists[1].IsStream && st.Playlists[1].Name == "News", "a single stream link can be added");
+    Check(st.AddStream("x", "file:///c:/a.mp4") is not null && st.AddStream("x", "javascript:alert(1)") is not null && st.AddStream("x", "https://example.invalid/live/stream.m3u8") is not null, "single stream rejects bad schemes and duplicates");
+    Check(st.AddStream("R", "rtmp://example.invalid/live/ch1") is null, "rtmp stream links are accepted");
+    var one = await ChannelCatalog.LoadOneAsync(st.Playlists[1], new HttpClient());
+    Check(one.Count == 1 && one[0].Url == "https://example.invalid/live/stream.m3u8", "a stream entry loads as one channel without downloading");
+
+    var withSchemes = M3uParser.Parse("#EXTM3U\n#EXTINF:-1,R\nrtmp://example.invalid/a\n#EXTINF:-1,S\nrtsp://example.invalid/b\n#EXTINF:-1,U\nudp://@239.0.0.1:1234\n#EXTINF:-1,F\nfile:///etc/passwd\n#EXTINF:-1,J\njavascript:alert(1)\n");
+    Check(withSchemes.Count == 3 && withSchemes.All(c => c.Url.Contains("example.invalid") || c.Url.StartsWith("udp:")), "parser accepts rtmp, rtsp and udp and still drops file: and javascript:");
+    var rel = M3uParser.Parse("#EXTM3U\n#EXTINF:-1,Rel\nstreams/ch1.m3u8\n#EXTINF:-1,Abs\n/live/ch2.m3u8\n", new Uri("https://example.invalid/lists/all.m3u"));
+    Check(rel.Count == 2 && rel[0].Url == "https://example.invalid/lists/streams/ch1.m3u8" && rel[1].Url == "https://example.invalid/live/ch2.m3u8", "relative stream addresses are resolved against the playlist link");
+
+    const string hlsMaster = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360\nlow/index.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=2000000\nhigh/index.m3u8\n";
+    var asStream = PlaylistLoader.Interpret(hlsMaster, new Uri("https://example.invalid/live/news/master.m3u8"));
+    Check(asStream.Count == 1 && asStream[0].Name == "master" && asStream[0].Url == "https://example.invalid/live/news/master.m3u8", "a link that is itself an HLS stream becomes one channel");
+    Check(PlaylistLoader.Interpret(Sample, new Uri("https://example.invalid/x.m3u")).Count == 4, "a normal channel list is still a list");
+
+    var viaFallback = await PlaylistLoader.LoadAsync("https://127.0.0.1:1/never.m3u", new HttpClient { Timeout = TimeSpan.FromSeconds(3) }, _ => new[] { "https://127.0.0.1:1/never.m3u" }, TimeSpan.FromSeconds(2), default, (u, ct) => Task.FromResult<string?>(Sample));
+    Check(viaFallback.Count == 4, "when direct download fails the system download fallback is used");
+
+    Check(IptvOrg.AllChannels.Url.EndsWith("/index.m3u") && IptvOrg.LanguageUrl("ENG").EndsWith("/languages/eng.m3u") && IptvOrg.LanguageSuggestions(IptvOrg.BuiltInLanguages).Any(l => l.Name == "Tagalog"), "iptv-org: all channels and languages");
+}
+
+Check(DohResolver.ParseAnswer("{\"Status\":0,\"Answer\":[{\"name\":\"x\",\"type\":5,\"data\":\"y.\"},{\"name\":\"x\",\"type\":1,\"data\":\"185.199.108.153\"},{\"type\":1,\"data\":\"bad\"}]}").Select(i => i.ToString()).SequenceEqual(new[] { "185.199.108.153" }), "DNS-over-HTTPS answer keeps only valid A records");
+Check(DohResolver.ParseAnswer("{}").Count == 0 && DohResolver.ParseAnswer("junk").Count == 0, "DNS-over-HTTPS garbage gives no addresses");
+
+{
+    var lh = new FakeHost(); var lr = new CommandRouter(new ChannelLineup(), lh);
+    Check(lr.Handle(new(null, "channel.list", null)).Ok && lh.Last == "channel.list:", "router channel.list reaches the host");
+}
+
+// ---- channel checks: blocked, gone, web pages, empty, and good HLS
+{
+    int hport = 19950 + Random.Shared.Next(40);
+    int flakyHits = 0;
+    using var hl = new HttpListener();
+    hl.Prefixes.Add($"http://127.0.0.1:{hport}/");
+    hl.Start();
+    _ = Task.Run(async () =>
+    {
+        while (hl.IsListening)
+        {
+            HttpListenerContext c;
+            try { c = await hl.GetContextAsync(); } catch { break; }
+            _ = Task.Run(async () =>
+            {
+                var path = c.Request.Url!.AbsolutePath;
+                string? body = path switch
+                {
+                    "/good/master.m3u8" => "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nlow/index.m3u8\n",
+                    "/good/low/index.m3u8" => "#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nseg1.ts\n",
+                    "/nosegment/index.m3u8" => "#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nmissing.ts\n",
+                    "/empty/index.m3u8" => "#EXTM3U\n#EXT-X-TARGETDURATION:6\n",
+                    "/signup" => "<html><body>Please register</body></html>",
+                    "/json/index.m3u8" => "#EXTM3U\n#EXTINF:6,\nseg.ts\n",
+                    "/text/index.m3u8" => "#EXTM3U\n#EXTINF:6,\nseg.ts\n",
+                    "/aes/index.m3u8" => "#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"key.bin\"\n#EXTINF:6,\nseg.ts\n",
+                    "/wv/index.m3u8" => "#EXTM3U\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI=\"skd://x\",KEYFORMAT=\"com.apple.streamingkeydelivery\"\n#EXTINF:6,\nseg.ts\n",
+                    "/norange/index.m3u8" => "#EXTM3U\n#EXTINF:6,\nseg.ts\n",
+                    "/fmp4/index.m3u8" => "#EXTM3U\n#EXT-X-MAP:URI=\"init.mp4\"\n#EXTINF:6,\nseg.m4s\n",
+                    "/dash.mpd" => "<?xml version=\"1.0\"?><MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\"><Period><AdaptationSet/></Period></MPD>",
+                    "/drm.mpd" => "<?xml version=\"1.0\"?><MPD><Period><AdaptationSet><ContentProtection schemeIdUri=\"urn:uuid:edef8ba9\"/></AdaptationSet></Period></MPD>",
+                    _ => null,
+                };
+                if (path == "/good/low/seg1.ts" || path == "/direct.ts") { await c.Response.OutputStream.WriteAsync(new byte[] { 0x47, 1, 2, 3, 4 }); }
+                else if (path == "/json/seg.ts") { c.Response.ContentType = "application/json"; await c.Response.OutputStream.WriteAsync("{\"error\":\"expired token\"}"u8.ToArray()); }
+                else if (path == "/text/seg.ts") { c.Response.ContentType = "text/plain"; await c.Response.OutputStream.WriteAsync("not allowed"u8.ToArray()); }
+                else if (path == "/aes/seg.ts" || path == "/wv/seg.ts") { c.Response.ContentType = "text/plain"; await c.Response.OutputStream.WriteAsync(new byte[] { 0x9A, 0x13, 0x77, 0x01, 0xEE, 0x42 }); }
+                else if (path == "/norange/seg.ts") { if (c.Request.Headers["Range"] is not null) c.Response.StatusCode = 416; else await c.Response.OutputStream.WriteAsync(new byte[] { 0x47, 0, 0 }); }
+                else if (path == "/fmp4/seg.m4s") { await c.Response.OutputStream.WriteAsync(new byte[] { 0, 0, 0, 24, (byte)'m', (byte)'o', (byte)'o', (byte)'f', 0, 0 }); }
+                else if (path == "/flaky.ts") { if (Interlocked.Increment(ref flakyHits) == 1) c.Response.StatusCode = 503; else await c.Response.OutputStream.WriteAsync(new byte[] { 0x47, 9 }); }
+                else if (path == "/blocked.m3u8") c.Response.StatusCode = 403;
+                else if (path == "/geo.m3u8") c.Response.StatusCode = 451;
+                else if (path == "/needsref.m3u8") { if (c.Request.Headers["Referer"] == "https://ok.example/") { var b = Encoding.UTF8.GetBytes("#EXTM3U\n#EXTINF:6,\n/direct.ts\n"); await c.Response.OutputStream.WriteAsync(b); } else c.Response.StatusCode = 403; }
+                else if (body is not null) { if (path == "/signup") c.Response.ContentType = "text/html"; var b = Encoding.UTF8.GetBytes(body); await c.Response.OutputStream.WriteAsync(b); }
+                else c.Response.StatusCode = 404;
+                c.Response.Close();
+            });
+        }
+    });
+    using var ph = new HttpClient();
+    var nowH = DateTimeOffset.UtcNow;
+    Channel Ch(string path, string? referrer = null) => new(Channel.StableId(path), path, $"http://127.0.0.1:{hport}{path}", null, "T", StreamKind.Hls, referrer);
+    async Task<ChannelHealth> Probe(string path, string? referrer = null) => await StreamProbe.CheckAsync(Ch(path, referrer), ph, nowH);
+
+    Check((await Probe("/good/master.m3u8")).Status == HealthStatus.Ok, "check: HLS master -> variant -> segment works");
+    Check((await Probe("/direct.ts")).Status == HealthStatus.Ok, "check: a direct video stream works");
+    var blocked = await Probe("/blocked.m3u8");
+    Check(blocked.Status == HealthStatus.Dead && blocked.Reason!.Contains("403"), "check: 403 is blocked / needs an account");
+    Check((await Probe("/geo.m3u8")).Reason!.Contains("not available in your country"), "check: 451 is a country block");
+    Check((await Probe("/gone.m3u8")).Reason!.Contains("no longer exists"), "check: 404 is gone");
+    Check((await Probe("/signup")).Reason!.Contains("web page"), "check: a sign-up web page is not a stream");
+    Check((await Probe("/nosegment/index.m3u8")).Reason!.Contains("no longer exists"), "check: playlist whose video segments are missing is dead");
+    Check((await Probe("/empty/index.m3u8")).Reason!.Contains("empty"), "check: empty playlist means nothing on air");
+    Check((await Probe("/needsref.m3u8")).Status == HealthStatus.Dead && (await Probe("/needsref.m3u8", "https://ok.example/")).Status == HealthStatus.Ok, "check: uses the playlist's referrer like the player does");
+    Check((await Probe("/json/index.m3u8")).Reason!.Contains("error message"), "check (strict): a JSON error instead of a video segment is not video");
+    Check((await Probe("/text/index.m3u8")).Reason!.Contains("does not look like video"), "check (strict): text instead of a video segment is not video");
+    Check((await Probe("/aes/index.m3u8")).Status == HealthStatus.Ok, "check (strict): AES-128 encrypted HLS segments are fine (they look random on purpose)");
+    Check((await Probe("/wv/index.m3u8")).Reason!.Contains("DRM"), "check (strict): SAMPLE-AES with a DRM key system is not playable");
+    Check((await Probe("/norange/index.m3u8")).Status == HealthStatus.Ok, "check (strict): a server that refuses byte ranges is retried without them");
+    Check((await Probe("/fmp4/index.m3u8")).Status == HealthStatus.Ok, "check (strict): fMP4 HLS segments are recognised");
+    Check((await Probe("/flaky.ts")).Status == HealthStatus.Ok && flakyHits == 2, "check (strict): a single 503 is retried before hiding a channel");
+    Check(StreamProbe.LooksLikeMedia(new byte[] { 0x1A, 0x45, 0xDF, 0xA3 }, 4) && !StreamProbe.LooksLikeMedia("hello"u8.ToArray(), 5), "media signatures: WebM yes, text no");
+    Check((await Probe("/dash.mpd")).Status == HealthStatus.Ok, "check: DASH (.mpd) is a stream, not a web page");
+    Check((await Probe("/drm.mpd")).Reason!.Contains("DRM"), "check: DRM-protected DASH is reported as not playable");
+    var rtmp = await StreamProbe.CheckAsync(new Channel("r", "r", "rtmp://example.invalid/live", null, "T", StreamKind.Direct), ph, nowH);
+    Check(rtmp.Status == HealthStatus.Unknown, "check: rtmp cannot be checked ahead and is kept");
+    hl.Stop();
+
+    var two = M3uParser.Parse(Sample).Take(2).ToList();
+    var hp = new PlaylistEntry("h", "H", "x", null);
+    var healthMap = new Dictionary<string, ChannelHealth> { [two[0].Id] = new(HealthStatus.Dead, "403", nowH), [two[1].Id] = new(HealthStatus.Ok, null, nowH) };
+    var loadedH = new Dictionary<string, IReadOnlyList<Channel>> { ["h"] = two };
+    Check(ChannelCatalog.BuildLineup(new[] { hp }, loadedH, healthMap).Single().Id == two[1].Id, "lineup leaves out channels that do not work here");
+    Check(ChannelCatalog.BuildLineup(new[] { hp }, loadedH, null).Count == 2, "lineup keeps everything when unavailable channels are shown");
+    Check(new AppSettings().HideUnavailable, "unavailable channels are hidden by default");
+}
+
+// ---- PH list support: auto categories, DASH/DRM checks, space flag, links sent from the phone
+{
+    var noGroups = M3uParser.Parse("#EXTM3U\n#EXTINF:-1,BBC World News\nhttps://example.invalid/a.m3u8\n#EXTINF:-1,Disney Jr\nhttps://example.invalid/b.m3u8\n#EXTINF:-1,GMA Network (1080p)\nhttps://example.invalid/c.m3u8\n#EXTINF:-1,NBA TV\nhttps://example.invalid/d.m3u8\n#EXTINF:-1,EWTN Asia-Pacific\nhttps://example.invalid/e.m3u8\n#EXTINF:-1,Zarok TV Sorani\nhttps://example.invalid/f.m3u8\n#EXTINF:-1 group-title=\"Mine\",Cinema One\nhttps://example.invalid/g.m3u8\n");
+    Check(noGroups.Select(c => c.Group).SequenceEqual(new[] { "News", "Kids", "Local TV", "Sports", "Religious", "International", "Mine" }), "channels without a group get a category from their name; a playlist's own group wins: " + string.Join(",", noGroups.Select(c => c.Group)));
+
+    var st = new AppSettings();
+    st.AddPlaylist("PH", "https://example.invalid/ph.m3u");
+    Check(!st.Playlists[0].ShowAsSpace, "a playlist is not a space until the user asks");
+    st.SetSpace(st.Playlists[0].Id, true);
+    Check(st.Playlists[0].ShowAsSpace, "a playlist can get its own space");
+
+    var pr = new CommandRouter(new ChannelLineup(), new FakeHost());
+    Check(pr.Handle(new(null, "playlist.add", "https://raw.githubusercontent.com/IPTV-Philippines/IPTV-Philippines/main/ph.m3u")).Ok, "a playlist link longer than 64 characters can be sent from the phone");
+    Check(!pr.Handle(new(null, "playlist.add", "javascript:alert(1)")).Ok && !pr.Handle(new(null, "playlist.add", "file:///c:/x.m3u")).Ok && !pr.Handle(new(null, "nav.up", new string('x', 100))).Ok, "phone links are checked and other commands keep the short limit");
+}
+
+// ---- free channel pack, only verified channels, tidy groups
+{
+    Check(IptvOrg.FreePack.Count == 4 && IptvOrg.FreePack.All(s => AppSettings.IsHttpsUrl(s.Url)) && IptvOrg.FreePack[0].Url.EndsWith("countries/ph.m3u"), "free channel pack: Philippines, Filipino, Tagalog and English lists");
+    Check(M3uParser.CleanGroup("Animation;Kids", "X") == "Animation" && M3uParser.CleanGroup("Undefined", "BBC News") == "News" && M3uParser.CleanGroup("", "Zzz") == "Other" && M3uParser.CleanGroup("Movies", "Disney") == "Movies", "groups: first of several, Undefined guessed, a real group kept");
+    var two = M3uParser.Parse(Sample).Take(2).ToList();
+    var vp = new PlaylistEntry("v", "V", "x", null);
+    var loadedV = new Dictionary<string, IReadOnlyList<Channel>> { ["v"] = two };
+    var onlyOne = new Dictionary<string, ChannelHealth> { [two[1].Id] = new(HealthStatus.Ok, null, DateTimeOffset.UtcNow) };
+    Check(ChannelCatalog.BuildLineup(new[] { vp }, loadedV, onlyOne, onlyVerified: true).Single().Id == two[1].Id, "only verified: a channel not checked yet stays hidden until it passes");
+    Check(ChannelCatalog.BuildLineup(new[] { vp }, loadedV, onlyOne, onlyVerified: false).Count == 2, "without only-verified the unchecked channel shows");
+}
+
+// ---- big lists are cut to their best channels per category; the lineup has a limit
+{
+    Channel Ch(int i, string name, string group, string? logo = null) => new($"id{i}", name, $"https://example.invalid/{i}.m3u8", logo, group, StreamKind.Hls);
+    var big = new List<Channel>();
+    for (int i = 0; i < 300; i++) big.Add(Ch(i, $"News {i:000}", "News"));
+    for (int i = 300; i < 600; i++) big.Add(Ch(i, $"Shop {i}", "Shop"));
+    big.Add(Ch(900, "Late Show (1080p) [Not 24/7]", "Movies"));
+    big.Add(Ch(901, "US Only (720p) [Geo-blocked]", "Movies"));
+    big.Add(Ch(902, "Film A (480p)", "Movies"));
+    big.Add(Ch(903, "Film B (1080p)", "Movies"));
+    big.Add(Ch(904, "Film C", "Movies", "https://example.invalid/c.png"));
+    var health = new Dictionary<string, ChannelHealth> { ["id250"] = new(HealthStatus.Ok, null, DateTimeOffset.UtcNow) };
+    var best = ChannelCurator.Best(big, health);
+    Check(best.Count(c => c.Group == "News") == ChannelCurator.PerCategory && best.All(c => c.Group != "Shop"), "curated: at most 20 per category, shopping left out");
+    Check(best.Any(c => c.Id == "id250"), "curated: a channel that works is picked first");
+    Check(best.Where(c => c.Group == "Movies").Select(c => c.Id).SequenceEqual(new[] { "id902", "id903", "id904" }), "curated: part-time and geo-blocked channels left out, the rest shown by name");
+    Check(best.First().Group == "News", "curated: categories in TV order");
+
+    var ph = new PlaylistEntry("ph", "Philippines", "x");
+    var eng = new PlaylistEntry("eng", "English", "y");
+    var small = Enumerable.Range(1000, 50).Select(i => Ch(i, $"PH {i}", "General")).ToList();
+    var loadedC = new Dictionary<string, IReadOnlyList<Channel>> { ["ph"] = small, ["eng"] = big };
+    var lineupC = ChannelCatalog.BuildLineup(new[] { ph, eng }, loadedC);
+    Check(lineupC.Take(50).SequenceEqual(small) && lineupC.Count == 50 + best.Count, "a small list is kept whole and first; the big one is curated");
+    Check(ChannelCatalog.BuildLineup(new[] { ph, eng }, loadedC, maxChannels: 60).Count == 60, "the lineup stops at the limit");
+    Check(ChannelCatalog.BuildLineup(new[] { eng with { Selected = big.Take(500).Select(c => c.Id).ToList() } }, loadedC).Count == 500, "channels picked by hand are all kept");
+}
+
+// ---- Pinoy Live pack: the networks' own YouTube live streams, as a playlist
+{
+    var pinoy = M3uParser.Parse(PinoyLive.Playlist());
+    Check(pinoy.Count == PinoyLive.Channels.Count && pinoy.All(c => c.Kind == StreamKind.YouTube && c.Url.StartsWith("https://www.youtube.com/@") && c.Url.EndsWith("/live")), "Pinoy Live: every channel is a YouTube live link");
+    Check(StreamProbe.IsYouTubeLiveLink(new Uri(pinoy[0].Url)) && !StreamProbe.IsYouTubeLiveLink(new Uri("https://www.youtube.com/watch?v=x")), "a channel's /live link is recognised");
+    Check(StreamProbe.YouTubePageIsLive("{\"videoDetails\":{\"isLiveNow\":true}}") && !StreamProbe.YouTubePageIsLive("{\"isLiveNow\":false}"), "a live page is told apart from an off-air one");
+    Check(pinoy[0].Name == "Kapamilya Online Live" && pinoy[0].TvgId == "Kapamilya.Channel.ph" && pinoy[0].Group == "Local TV", "Pinoy Live: names, guide ids and categories come through");
+}
+
+// ---- programme guide (XMLTV): now and next, matched by guide id or by name
+{
+    const string Xml = "<?xml version=\"1.0\"?><!DOCTYPE tv SYSTEM \"xmltv.dtd\"><tv>" +
+        "<channel id=\"GMA.ph\"><display-name>GMA</display-name><display-name lang=\"en\">GMA Network</display-name></channel>" +
+        "<channel id=\"tv5x\"><display-name>TV5 HD</display-name></channel>" +
+        "<programme start=\"20261030120000 +0800\" stop=\"20261030130000 +0800\" channel=\"GMA.ph\"><title>Eat Bulaga</title><desc>Noontime show</desc></programme>" +
+        "<programme start=\"20261030130000 +0800\" stop=\"20261030140000 +0800\" channel=\"GMA.ph\"><title lang=\"tl\">Afternoon Drama</title></programme>" +
+        "<programme start=\"20261029000000 +0800\" stop=\"20261029010000 +0800\" channel=\"GMA.ph\"><title>Too Old</title></programme>" +
+        "<programme start=\"20261030110000 +0800\" stop=\"20261030150000 +0800\" channel=\"tv5x\"><title>Movie Block</title></programme>" +
+        "</tv>";
+    var at = new DateTimeOffset(2026, 10, 30, 12, 30, 0, TimeSpan.FromHours(8));
+    var g = ProgramGuide.Parse(new MemoryStream(Encoding.UTF8.GetBytes(Xml)), at.AddHours(-2), at.AddHours(12));
+    var gma = new Channel("g", "GMA Network (1080p)", "https://example.invalid/g.m3u8", null, "Local TV", StreamKind.Hls, TvgId: "GMA.ph@SD");
+    var (onNow, onNext) = g.NowNext(gma, at);
+    Check(onNow?.Title == "Eat Bulaga" && onNow.Description == "Noontime show" && onNext?.Title == "Afternoon Drama", "guide: now and next by guide id (feed suffix ignored), description kept");
+    Check(g.NowNext(gma with { TvgId = null }, at).Now?.Title == "Eat Bulaga", "guide: matched by name when there is no guide id");
+    Check(g.NowNext(new Channel("t", "TV5 (720p) [Geo-blocked]", "https://example.invalid/t.m3u8", null, "Local TV", StreamKind.Hls), at).Now?.Title == "Movie Block", "guide: 'TV5 (720p) [Geo-blocked]' matches 'TV5 HD'");
+    Check(g.NowNext(new Channel("x", "Unknown", "https://example.invalid/x.m3u8", null, "Other", StreamKind.Hls), at) == (null, null), "guide: unknown channel has nothing");
+    Check(ProgramGuide.TryParseTime("20261030120000 +0800", out var t8) && t8.UtcDateTime == new DateTime(2026, 10, 30, 4, 0, 0) && ProgramGuide.TryParseTime("20261030120000", out var tz) && tz.Offset == TimeSpan.Zero && !ProgramGuide.TryParseTime("junk", out _), "guide: XMLTV times with and without a zone");
+    var gz = new MemoryStream();
+    using (var z = new System.IO.Compression.GZipStream(gz, System.IO.Compression.CompressionLevel.Fastest, leaveOpen: true)) z.Write(Encoding.UTF8.GetBytes(Xml));
+    gz.Position = 0;
+    Check(ProgramGuide.Parse(gz, at.AddHours(-2), at.AddHours(12)).NowNext(gma, at).Now?.Title == "Eat Bulaga", "guide: gzip guide is read too");
+    Check(M3uParser.Parse("#EXTM3U\n#EXTINF:-1 tvg-id=\"GMA.ph@SD\" group-title=\"General\",GMA\nhttps://example.invalid/g.m3u8\n").Single().TvgId == "GMA.ph@SD", "playlist keeps the guide id (tvg-id)");
+}
+
+// ---- on-screen keyboard: recent entries, hold-OK alternates, row-to-row movement, the preview window
+{
+    var h = new TypingHistory();
+    Check(!h.Remember("link", "") && !h.Remember("link", "https://") && !h.Remember(null, "x") && h.For("link").Count == 0, "empty, prefix-only and purpose-less entries are not kept");
+    h.Remember("link", "https://a.example"); h.Remember("link", "https://b.example"); h.Remember("link", " https://a.example ");
+    Check(h.For("link").SequenceEqual(new[] { "https://a.example", "https://b.example" }), "newest first, no duplicates, trimmed");
+    for (int i = 0; i < 20; i++) h.Remember("search", "q" + i);
+    Check(h.For("search").Count == TypingHistory.MaxPerPurpose && h.For("search")[0] == "q19", "history is capped per purpose");
+    Check(h.For("other").Count == 0, "purposes are separate");
+    Check(h.Suggest("link", "https://").Count == 2 && h.Suggest("link", "https://B").SequenceEqual(new[] { "https://b.example" }), "suggestions continue what is typed (a bare https:// shows all)");
+    Check(h.Suggest("link", "https://b.example").Count == 0, "an entry already typed in full is not offered again");
+    var file = Path.Combine(Path.GetTempPath(), "kw-typing-" + Guid.NewGuid().ToString("N") + ".json");
+    h.Save(file);
+    Check(TypingHistory.Load(file).For("link").SequenceEqual(h.For("link")), "history survives a save and load");
+    File.Delete(file);
+    Check(TypingHistory.Load(file).Entries.Count == 0, "a missing history file is an empty history");
+
+    Check(OskText.Alternate("a") == "A" && OskText.Alternate("Q") == "q" && OskText.Alternate("1") == "!" && OskText.Alternate("0") == ")", "alternates: case and shifted digits");
+    Check(OskText.Alternate("-") == "_" && OskText.Alternate("%") is null && OskText.Alternate(".com") is null, "alternates: symbols");
+    Check(OskText.IsJustPrefix(" HTTPS:// ") && OskText.IsJustPrefix("") && !OskText.IsJustPrefix("https://x"), "prefix-only text");
+
+    var row = new[] { (0d, 60d), (70d, 130d), (140d, 400d), (410d, 470d) };
+    Check(OskText.Nearest(row, 100) == 1 && OskText.Nearest(row, 300) == 2 && OskText.Nearest(row, 135) == 1, "nearest key under the column (a gap goes to the first)");
+    Check(OskText.Nearest(row, 900) == 3 && OskText.Nearest(row, -50) == 0 && OskText.Nearest(Array.Empty<(double, double)>(), 5) == -1, "nearest key past the ends");
+    Check(OskText.Wrap(0, -1, 5) == 4 && OskText.Wrap(4, 1, 5) == 0 && OskText.Wrap(2, 1, 5) == 3, "arrows wrap round");
+
+    var (b1, a1) = OskText.Window("hello", 2);
+    Check(b1 == "he" && a1 == "llo", "short text is shown whole around the caret");
+    var longText = new string('x', 100) + "END";
+    var (b2, a2) = OskText.Window(longText, longText.Length, 20);
+    Check(b2.StartsWith("…") && b2.EndsWith("END") && a2 == "" && b2.Length == 21, "long text shows its end when the caret is there");
+    var (b3, a3) = OskText.Window(longText, 0, 20);
+    Check(b3 == "" && a3.EndsWith("…") && a3.Length == 21, "long text shows its start when the caret is there");
+}
+
+// ---- Lineup for the phone's channel list (lineup.get)
+{
+    var lgChannels = Enumerable.Range(1, 520).Select(i => new Channel($"id{i}", i == 2 ? new string('n', 300) : $"Ch {i}", $"https://example.invalid/{i}.m3u8", null, i % 2 == 0 ? "News" : "Movies", StreamKind.Hls)).ToList();
+    var lgMsg = JsonDocument.Parse(RemoteServer.LineupMessage(lgChannels, ch => ch.Id == "id1" ? "Morning Show  ·  8:00–9:00 AM" : ch.Id == "id3" ? throw new InvalidOperationException() : null, id => id == "id4", "q1")).RootElement;
+    var lgList = lgMsg.GetProperty("channels");
+    Check(lgMsg.GetProperty("type").GetString() == "lineup" && lgMsg.GetProperty("id").GetString() == "q1" && lgMsg.GetProperty("total").GetInt32() == 520, "lineup message type, id and total");
+    Check(lgList.GetArrayLength() == RemoteServer.MaxLineupChannels, "lineup capped at MaxLineupChannels");
+    Check(lgList[0].GetProperty("number").GetInt32() == 1 && lgList[0].GetProperty("name").GetString() == "Ch 1" && lgList[0].GetProperty("group").GetString() == "Movies" && lgList[0].GetProperty("now").GetString()!.StartsWith("Morning Show"), "lineup row fields");
+    Check(lgList[1].GetProperty("name").GetString()!.Length == 80 && lgList[1].GetProperty("now").ValueKind == JsonValueKind.Null, "lineup cuts long names, null when nothing on");
+    Check(lgList[2].GetProperty("now").ValueKind == JsonValueKind.Null && lgList[3].GetProperty("favorite").GetBoolean() && !lgList[0].GetProperty("favorite").GetBoolean(), "lineup survives a guide error, marks favorites");
+
+    int lgPort = 19400 + Random.Shared.Next(200);
+    var lgPair = new PairingService(); var lgLineup = new ChannelLineup(); lgLineup.Load(parsed);
+    await using (var lgServer = new RemoteServer($"http://127.0.0.1:{lgPort}/", lgPair, new CommandRouter(lgLineup, new FakeHost()), lgLineup) { OnAir = ch => ch.Name == "Channel A" ? "News at Eight" : null })
+    {
+        lgServer.Start();
+        using var lgHttp = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{lgPort}/") };
+        using (var lgAnon = new ClientWebSocket())
+        {
+            bool lgRefused = false;
+            try { await lgAnon.ConnectAsync(new Uri($"ws://127.0.0.1:{lgPort}/ws?device=x&token=y"), CancellationToken.None); } catch { lgRefused = true; }
+            Check(lgRefused, "lineup needs a paired phone");
+        }
+        var lgCred = await (await lgHttp.PostAsJsonAsync("/pair", new { pin = lgPair.StartPairing(DateTimeOffset.UtcNow), name = "Phone" })).Content.ReadFromJsonAsync<JsonElement>();
+        using var lgWs = new ClientWebSocket();
+        await lgWs.ConnectAsync(new Uri($"ws://127.0.0.1:{lgPort}/ws?device={lgCred.GetProperty("deviceId").GetString()}&token={lgCred.GetProperty("token").GetString()}"), CancellationToken.None);
+        await Recv(lgWs); // initial state
+        await SendJson(lgWs, new { id = "7", cmd = "lineup.get" });
+        var lgReply = JsonDocument.Parse(await RecvWhole(lgWs)).RootElement;
+        Check(lgReply.GetProperty("type").GetString() == "lineup" && lgReply.GetProperty("id").GetString() == "7" && lgReply.GetProperty("channels").GetArrayLength() == parsed.Count, "ws lineup.get answers with the lineup");
+        Check(lgReply.GetProperty("channels")[0].GetProperty("now").GetString() == "News at Eight", "ws lineup has on-now from the shell");
+        lgLineup.Load(parsed.Take(2));
+        var lgPush = JsonDocument.Parse(await RecvWhole(lgWs)).RootElement;
+        Check(lgPush.GetProperty("type").GetString() == "lineup" && lgPush.GetProperty("channels").GetArrayLength() == 2, "lineup is sent again when it changes");
+        await SendJson(lgWs, new { id = "8", cmd = "channel.list" });
+        var lgAck = JsonDocument.Parse(await Recv(lgWs)).RootElement;
+        Check(lgAck.GetProperty("type").GetString() == "ack" && lgAck.GetProperty("ok").GetBoolean(), "channel.list still opens the list on the TV");
+    }
+}
+
+Console.WriteLine($"{pass} passed, {fail} failed");
+return fail == 0 ? 0 : 1;
+
+static async Task SendJson(ClientWebSocket ws, object o) =>
+    await ws.SendAsync(JsonSerializer.SerializeToUtf8Bytes(o, new JsonSerializerOptions(JsonSerializerDefaults.Web) { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull }),
+        WebSocketMessageType.Text, true, CancellationToken.None);
+
+static async Task<string> Recv(ClientWebSocket ws)
+{
+    var buf = new byte[4096];
+    using var cts = new CancellationTokenSource(5000);
+    var r = await ws.ReceiveAsync(buf, cts.Token);
+    return Encoding.UTF8.GetString(buf, 0, r.Count);
+}
+
+static async Task<string> RecvWhole(ClientWebSocket ws)
+{
+    var buf = new byte[8192];
+    using var cts = new CancellationTokenSource(5000);
+    using var ms = new MemoryStream();
+    WebSocketReceiveResult r;
+    do { r = await ws.ReceiveAsync(buf, cts.Token); ms.Write(buf, 0, r.Count); } while (!r.EndOfMessage);
+    return Encoding.UTF8.GetString(ms.ToArray());
+}
+
+sealed class FakeHost : IHostActions
+{
+    public string Last = ""; public bool Throw;
+    public void Execute(string cmd, string? arg) { if (Throw) throw new InvalidOperationException(); Last = $"{cmd}:{arg}"; }
+}

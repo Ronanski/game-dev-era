@@ -1,19 +1,14 @@
-# Godot 4
-.godot/
-/android/
-*.translation
+bin/
+obj/
+publish/
+dist/
+src/KwartoTV.App/libs/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.log
+node_modules/
 
-# Builds
-build/
-*.apk
-*.aab
-*.exe
-*.pck
-
-# Keystores (never commit signing keys)
-*.keystore
-*.jks
-
-# OS
-.DS_Store
-Thumbs.db
+# Claude Code agent worktrees
+.claude/worktrees/
